@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from ..config import CFG, config_for
 from ..pipeline.encode import encode
 from ..pipeline.decode import decode
+from ..pipeline.spectrogram import spectrogram
 
 app = FastAPI(title="HiddenHz API", version="1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"],
@@ -51,3 +52,13 @@ async def api_decode(audio: UploadFile = File(...), password: str = Form(...),
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     return {"info": meta, "png_base64": base64.b64encode(png).decode()}
+
+@app.post("/api/spectrogram")
+async def api_spectrogram(audio: UploadFile = File(...)):
+    """Figure data for the frontend, computed with the codec's own STFT."""
+    try:
+        png, band_png, info = spectrogram(await audio.read())
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return {"info": info, "png_base64": base64.b64encode(png).decode(),
+            "band_png_base64": base64.b64encode(band_png).decode() if band_png else None}
