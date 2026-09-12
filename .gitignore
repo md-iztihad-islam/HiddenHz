@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.DS_Store
+node_modules/
+dist/
+demo_stego.wav
+demo_recovered.png
+outputs/
+*.egg-info/
+.idea/
+.vscode/
