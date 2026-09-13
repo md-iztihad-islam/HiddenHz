@@ -78,6 +78,8 @@ def decode(wav_bytes: bytes, password: str, cfg: Config | None = None,
         return _decode_with(wav_bytes, password, cfg, threshold)
 
     sr = sf.info(io.BytesIO(wav_bytes)).samplerate
+    if sr < 44100:
+        read_wav(wav_bytes, 44100)     # raises: the band was lost to resampling
     presets = ("standard", "detail") if detail == "auto" else (detail,)
 
     best = None

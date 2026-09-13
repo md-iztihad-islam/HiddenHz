@@ -5,7 +5,7 @@ from ..dsp.stft import istft
 from ..keying.keyschedule import key_schedule, scramble
 from .image_io import (HEADER_COLS, header_column, prepare, prepare_colour,
                        to_amplitude)
-from .audio_io import read_wav, write_wav, fit_length, clear_band
+from .audio_io import read_wav, write_wav, fit_length, clear_band, resample
 
 def build_payload(grid: np.ndarray, password: str, cfg: Config = CFG) -> np.ndarray:
     """
@@ -45,14 +45,15 @@ def encode(image_bytes: bytes, password: str, carrier_bytes: bytes | None = None
            max_cols: int = 400, cfg: Config | None = None,
            sample_rate: int = 48000, detail: str = "standard", colour: bool = False):
     """
-    If a carrier is supplied, its sample rate wins, so the user never has to match
-    the two by hand.
+    If a carrier is supplied at 44100 or 48000 Hz, its sample rate wins, so the user never
+    has to match the two by hand. A carrier at any other rate is resampled instead.
     """
+    carrier_sr = None
+    if carrier_bytes:
+        import io, soundfile as sf
+        carrier_sr = sf.info(io.BytesIO(carrier_bytes)).samplerate
     if cfg is None:
-        if carrier_bytes:
-            import io, soundfile as sf
-            sample_rate = sf.info(io.BytesIO(carrier_bytes)).samplerate
-        cfg = config_for(sample_rate, detail)
+        cfg = config_for(carrier_sr if carrier_sr in (44100, 48000) else sample_rate, detail)
 
     if colour:
         content, picture_cols = prepare_colour(image_bytes, cfg.rows, max_cols)
@@ -63,8 +64,12 @@ def encode(image_bytes: bytes, password: str, carrier_bytes: bytes | None = None
     grid = np.concatenate([header_column(cfg.rows, colour), content], axis=1)
     payload = build_payload(grid, password, cfg)
 
+    note = None
     if carrier_bytes:
-        carrier = read_wav(carrier_bytes, cfg.sample_rate)
+        carrier = read_wav(carrier_bytes, carrier_sr)
+        if carrier_sr != cfg.sample_rate:
+            carrier = resample(carrier, carrier_sr, cfg.sample_rate)
+            note = "Carrier resampled from %d Hz to %d Hz." % (carrier_sr, cfg.sample_rate)
         carrier = fit_length(carrier, payload.size)
         carrier = clear_band(carrier, cfg.sample_rate, cfg.f_lo)
         peak = float(np.max(np.abs(carrier)))
@@ -83,4 +88,6 @@ def encode(image_bytes: bytes, password: str, carrier_bytes: bytes | None = None
         "n_fft": cfg.n_fft,
         "detail": "standard" if cfg.n_fft == 2048 else "detail",
     }
+    if note:
+        info["note"] = note
     return write_wav(mix, cfg.sample_rate), info

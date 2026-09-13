@@ -223,6 +223,7 @@ function EncodePanel({ presets, onEncoded, onGoDecode }: {
             <p className="note fig-note">
               <b>Note.</b> Keep it WAV or FLAC: MP3 and AAC discard the band above 15{" "}kHz.
             </p>
+            {out.info.note && <p className="hint">{out.info.note}</p>}
           </>)}
         </section>
       </div>

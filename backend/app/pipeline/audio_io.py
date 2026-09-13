@@ -9,8 +9,21 @@ def read_wav(data: bytes, sample_rate: int) -> np.ndarray:
     """Mono float64. Raises if the file is not at the rate we expect."""
     x, sr = sf.read(io.BytesIO(data), dtype="float64", always_2d=True)
     if sr != sample_rate:
+        if sr < 44100:
+            raise ValueError("This audio was resampled somewhere in transit, so everything "
+                             "above about 11 kHz was discarded, and the hidden image with it. "
+                             "Please use the original WAV file.")
         raise ValueError("audio must be %d Hz, got %d Hz" % (sample_rate, sr))
     return x.mean(axis=1)
+
+
+def resample(x: np.ndarray, sr_in: int, sr_out: int) -> np.ndarray:
+    """
+    Linear interpolation onto a new time axis. Crude, but the carrier is decoration, and
+    clear_band removes anything this folds into our band.
+    """
+    n = int(round(x.size * sr_out / sr_in))
+    return np.interp(np.arange(n) / sr_out, np.arange(x.size) / sr_in, x)
 
 
 def write_wav(x: np.ndarray, sample_rate: int) -> bytes:

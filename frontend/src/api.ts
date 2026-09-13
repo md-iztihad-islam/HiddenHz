@@ -43,7 +43,7 @@ export type Presets = Record<string, Preset>;
 export type EncodeInfo = {
   rows: number; cols: number; grid_cols: number; colour: boolean; frames: number;
   duration_s: number; band_hz: [number, number]; sample_rate: number;
-  n_fft: number; detail: string;
+  n_fft: number; detail: string; note?: string;
 };
 export type DecodeInfo = {
   rows: number; cols: number; colour: boolean;
