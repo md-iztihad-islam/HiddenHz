@@ -46,6 +46,14 @@ def test_encode_decode_no_carrier():
     assert info["rows"] == CFG.rows and meta["password_ok"]
     assert meta["confidence"] > 0.4
 
+def test_decoded_grid_matches_sent_grid():
+    from app.pipeline.image_io import prepare
+    wav, _ = encode(_image(), "rainy-day-42")
+    png, _ = decode(wav, "rainy-day-42")
+    got = np.asarray(Image.open(io.BytesIO(png)), np.float64) / 255.0
+    sent = prepare(_image(), CFG.rows)
+    assert 10 * np.log10(1.0 / np.mean((got - sent) ** 2)) > 40.0
+
 def test_wrong_password_gives_noise():
     wav, _ = encode(_image(), "rainy-day-42")
     _, meta = decode(wav, "rainy-day-43")

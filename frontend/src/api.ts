@@ -2,8 +2,8 @@
 const BASE = "http://localhost:8000";
 
 export const BACKEND_DOWN =
-  "Can't reach the backend on localhost:8000. Start it from backend/ with: " +
-  "uvicorn app.api.main:app --port 8000";
+  "Can't reach the backend. Start it from backend/ with: " +
+  "uvicorn app.api.main:app";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;

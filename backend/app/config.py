@@ -1,8 +1,8 @@
 """
 Every tunable number lives here. The encoder and decoder must agree on all of them.
 
-Two presets. "standard" fits a 150-row picture into about 6.5 seconds of audio;
-"detail" fits a 299-row picture into about 26 seconds. Pick one with config_for().
+Two presets. "standard" fits a 150-row picture into about 13 seconds of audio;
+"detail" fits a 299-row picture into about 52 seconds. Pick one with config_for().
 """
 import math
 from dataclasses import dataclass
@@ -16,8 +16,8 @@ class Config:
     f_lo:      float = 15000.0   # bottom of the hidden band
     f_hi:      float = 22000.0   # top of the hidden band
     bin_spacing: int = 2         # gap between neighbouring tones, in bins
-    reps:        int = 4         # how many frames each image column is held for
-    guard:       int = 1         # frames dropped at each end of a block when decoding
+    reps:        int = 8         # how many frames each image column is held for
+    guard:       int = 2         # frames dropped at each end of a block when decoding
     header_cols: int = 2         # marker columns, see image_io.header_column()
     dynamic_db: float = 30.0     # black -> -30 dB, white -> 0 dB
     payload_gain: float = 0.06   # peak amplitude of the hidden signal

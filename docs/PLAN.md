@@ -24,7 +24,7 @@ decode:  stego.wav + password             ──>  photo.png      the picture
 ```
 
 The picture is a real photograph — a professor, a landscape, a nebula. In grayscale it is
-**150 × 150 pixels in about 6.5 seconds of audio**; **in colour, 150 × 150 in about 9.8
+**150 × 150 pixels in about 13 seconds of audio**; **in colour, 150 × 150 in about 19.5
 seconds**. The high-detail preset doubles both dimensions. Part G shows what those actually
 look like.
 
@@ -255,27 +255,51 @@ phase, exactly as the project description says. But because the *advance* is the
 correct one, the ISTFT output really is a sum of steady sinusoids, its STFT is consistent, and
 the magnitudes come back essentially unchanged.
 
-## B.6 Time smearing — why each image column is held for four frames
+## B.6 Time smearing — why each image column is held for eight frames
 
-One output sample is touched by four frames. If the magnitude changes on every frame, those
-four frames describe four *different* image columns, and the recovered value at any point is a
-blur of all four.
+One output sample is touched by four frames, because with 75 % overlap a frame is four hops
+long. If the magnitude changes on every frame, those four frames describe four *different*
+image columns, and the recovered value at any point is a blur of all four.
 
-So we hold each image column for `reps = 4` consecutive frames. Then the four frames covering
-any sample mostly agree, because they mostly belong to the same column.
+So we hold each image column for `reps` consecutive frames. The rule for how many is simple:
+**a column must last longer than one frame**, so that some analysis frame sees only that
+column and nothing of its neighbours.
 
-On decode we average the four frames of each block — averaging four noisy measurements of the
-same value — but we **drop one frame at each end** of the block, because those straddle the
-boundary between two columns. That is the `guard` in the code.
+Count it in hops. A frame is 4 hops long. A column held for `reps` frames spans `reps + 3`
+hops, and the frames of the neighbouring columns overlap 3 hops at each end of it. That leaves
+`reps − 3` hops that belong to this column alone. A whole frame fits in there only when
+`reps − 3 ≥ 4`, that is `reps ≥ 7`.
 
-Measured, same image and settings otherwise:
+Our first choice was `reps = 4`, to match the overlap factor. It looks natural, but it is the
+worst case: the column then lasts exactly one frame (4 × 512 = 2048 = `n_fft`), so *every*
+analysis frame straddles two columns. A dark pixel next to a bright one is lifted by its
+neighbour's bleed, and the picture comes back soft with washed-out shadows.
 
-| reps, guard | recovered image correlation |
-|---|---|
-| 1, 0 | 0.43 |
-| 2, 0 | 0.80 |
-| 3, 1 | 0.94 |
-| **4, 1** | **0.98** |
+With `reps = 8` a column lasts two frames. The two frames in the middle of each block see only
+that column, and the frames on either side of them see the neighbour only under the thin tail
+of the window.
+
+On decode we average the frames of each block, which is averaging repeated measurements of the
+same value, but we **drop two frames at each end** of the block, because those straddle the
+boundary between two columns. That is the `guard` in the code. Dropping three instead, so that
+only the two clean frames are kept, measured 49.3 dB against 49.1 dB: no real difference, so we
+keep four frames to average.
+
+Measured on `sample.bmp` in grayscale with no carrier, comparing the decoded grid against the
+exact grid the encoder sent:
+
+| reps, guard | column length | PSNR against the sent grid | square picture |
+|---|---|---|---|
+| 1, 0 | 0.25 frame | 12.4 dB | 1.7 s |
+| 2, 0 | 0.5 frame | 14.9 dB | 3.3 s |
+| 3, 1 | 0.75 frame | 20.4 dB | 4.9 s |
+| 4, 1 | 1 frame | 25.1 dB | 6.6 s |
+| 6, 2 | 1.5 frames | 46.7 dB | 9.8 s |
+| **8, 2** | **2 frames** | **49.1 dB** | **13.1 s** |
+
+The big jump is from 4 to 6, the point where a column starts to outlast a frame. Going on to 8
+gains another 2.4 dB, because at 6 no frame is perfectly clean yet. The price is audio length:
+`reps = 8` costs twice what `reps = 4` did.
 
 ## B.7 Why nobody hears it: Nyquist, and human hearing
 
@@ -299,23 +323,23 @@ above 14.5 kHz before mixing. The filter belongs on the carrier, not on the payl
 This is the one piece of intuition to take away from the project.
 
 - **Rows** come from the frequency axis: `rows = (band width in Hz) / (bin width × spacing)`.
-- **Columns** come from the time axis: each column needs about one frame length of time, or the
-  columns blur into each other (B.6).
+- **Columns** come from the time axis: each column needs more than one frame length of time, or
+  the columns blur into each other. We give each column two frame lengths (B.6).
 
 Put those together and, for a square `R × R` picture,
 
 ```
-                    R² × spacing
+                  2 × R² × spacing
 duration  ≈  ───────────────────────────      seconds
                 band width in Hz
 ```
 
-Check it: `R = 150`, spacing 2, band 7000 Hz → 150²×2/7000 = **6.4 s**. Measured: 6.5 s.
+Check it: `R = 150`, spacing 2, band 7000 Hz → 2×150²×2/7000 = **12.9 s**. Measured: 13.1 s.
 
 Three consequences we actually used:
 
-1. **Doubling the picture size quadruples the audio length.** 150×150 costs 6.5 s; 299×299
-   costs 26 s.
+1. **Doubling the picture size quadruples the audio length.** 150×150 costs 13.1 s; 299×299
+   costs 51.5 s.
 2. **A wider band is a straight win.** Moving from 44.1 kHz (band 15–20 kHz, 5 kHz wide) to
    48 kHz (band 15–22 kHz, 7 kHz wide) gives 40 % more picture for the same duration. That is
    why the default is 48 kHz.
@@ -372,7 +396,7 @@ literally true. It just is not the part that provides the security, and we shoul
 is.
 
 **Why shuffle within columns rather than across the whole picture.** A full 2D shuffle scatters
-values across time as well as frequency, which breaks the "hold each column for four frames"
+values across time as well as frequency, which breaks the "hold each column for eight frames"
 property of B.6 and makes neighbouring frames disagree again. Measured: 0.97 with the
 per-column shuffle, 0.86 with the full 2D shuffle. Shuffling whole columns in time is free,
 because a column stays intact.
@@ -459,7 +483,7 @@ full RGB :  3 × (R × C)                       = 3.00 × grayscale
 YCbCr    :  R×C  +  2 × (R/2 × C/2)           = 1.50 × grayscale
 ```
 
-So 150 × 150 in colour costs 9.8 s instead of 6.5 s, not 19.5 s.
+So 150 × 150 in colour costs 19.5 s instead of 13.1 s, not 38.7 s.
 
 **Step 3: pack the three planes into one grid.** The grid is always `rows` tall, so we lay the
 planes out side by side in time:
@@ -527,8 +551,8 @@ n_fft        = 2048       # 48000/2048 = 23.44 Hz per bin (B.0)
 hop          = 512        # n_fft/4 -> 75 % overlap, Hann COLA error 4.4e-16 (B.4)
 f_lo, f_hi   = 15000, 22000
 bin_spacing  = 2          # Hann leaks into exactly ±1 bin, so 2 is enough (B.3)
-reps         = 4          # frames per image column (B.6)
-guard        = 1          # frames dropped at each block edge (B.6)
+reps         = 8          # frames per image column; a column must outlast a frame (B.6)
+guard        = 2          # frames dropped at each block edge (B.6)
 dynamic_db   = 30.0       # black -> −30 dB, white -> 0 dB
 payload_gain = 0.06       # peak amplitude of the hidden signal
 ```
@@ -539,17 +563,17 @@ Derived:
 bin_lo = ceil(15000 / 23.44) = 640
 bin_hi = floor(22000 / 23.44) = 938
 rows   = (938 − 640) / 2 + 1 = 150 image rows
-duration = (cols·4 + 8) · 512 / 48000  seconds
+duration = (cols·8 + 8) · 512 / 48000  seconds
 ```
 
 ### The four presets
 
 | sample rate | preset | n_fft | bin width | rows | grayscale square | colour square |
 |---|---|---|---|---|---|---|
-| 44100 | standard | 2048 | 21.53 Hz | 116 | 5.6 s | 8.3 s |
-| 44100 | detail | 4096 | 10.77 Hz | 232 | 21.9 s | 32.7 s |
-| **48000** | **standard** | 2048 | 23.44 Hz | **150** | **6.6 s** | **9.8 s** |
-| 48000 | detail | 4096 | 11.72 Hz | 299 | 25.9 s | 38.6 s |
+| 44100 | standard | 2048 | 21.53 Hz | 116 | 11.1 s | 16.4 s |
+| 44100 | detail | 4096 | 10.77 Hz | 232 | 43.7 s | 65.2 s |
+| **48000** | **standard** | 2048 | 23.44 Hz | **150** | **13.1 s** | **19.5 s** |
+| 48000 | detail | 4096 | 11.72 Hz | 299 | 51.5 s | 77.0 s |
 
 If the user supplies a carrier, its sample rate wins, so nobody has to match rates by hand. On
 decode the preset is auto-detected by trying both and keeping whichever gives the higher
@@ -616,7 +640,7 @@ frontend/
 | Layer | Choice | Why |
 |---|---|---|
 | DSP + API | Python, NumPy, FastAPI | NumPy for arrays; FastAPI handles file upload and gives free docs at `/docs` |
-| Transform | **our own radix-2 FFT** | reused from the offline. About 0.3 ms per 2048-point transform, so a whole encode takes about 0.3 s. No reason to use `numpy.fft` |
+| Transform | **our own radix-2 FFT** | reused from the offline. About 0.3 ms per 2048-point transform, so a whole encode takes about 0.8 s. No reason to use `numpy.fft` |
 | Audio | `soundfile` | reads and writes WAV without touching samples |
 | Image | Pillow | grayscale, autocontrast, resize |
 | Frontend | React + Vite + TypeScript + Tailwind | as requested; easy to vibecode |
@@ -675,8 +699,8 @@ pytest==8.3.4
 """
 Every tunable number lives here. The encoder and decoder must agree on all of them.
 
-Two presets. "standard" fits a 150-row picture into about 6.5 seconds of audio;
-"detail" fits a 299-row picture into about 26 seconds. Pick one with config_for().
+Two presets. "standard" fits a 150-row picture into about 13 seconds of audio;
+"detail" fits a 299-row picture into about 52 seconds. Pick one with config_for().
 """
 import math
 from dataclasses import dataclass
@@ -690,8 +714,8 @@ class Config:
     f_lo:      float = 15000.0   # bottom of the hidden band
     f_hi:      float = 22000.0   # top of the hidden band
     bin_spacing: int = 2         # gap between neighbouring tones, in bins
-    reps:        int = 4         # how many frames each image column is held for
-    guard:       int = 1         # frames dropped at each end of a block when decoding
+    reps:        int = 8         # how many frames each image column is held for
+    guard:       int = 2         # frames dropped at each end of a block when decoding
     header_cols: int = 2         # marker columns, see image_io.header_column()
     dynamic_db: float = 30.0     # black -> -30 dB, white -> 0 dB
     payload_gain: float = 0.06   # peak amplitude of the hidden signal
@@ -1488,9 +1512,9 @@ permutation of the 150 frequency rows for *each* column, plus one permutation of
 themselves. Both are applied here, before anything becomes sound. This is the step that makes a
 spectrogram useless without the password.
 
-**3. `np.repeat(amp, cfg.reps, axis=1)`** holds each image column for 4 consecutive frames. With
-75 % overlap, any output sample is touched by 4 frames; if the magnitude changed every frame
-those 4 would describe 4 different columns and blur together (B.6).
+**3. `np.repeat(amp, cfg.reps, axis=1)`** holds each image column for 8 consecutive frames. With
+75 % overlap, any output sample is touched by 4 frames, so a column held for 8 lasts two frame
+lengths and the middle frames of each block see that column alone (B.6).
 
 **4. The blank `pad` columns** are the fix for the edge click (B.4). The window sum ramps up over
 the first `n_fft - hop` samples, and dividing real audio by that ramp produced a broadband click
@@ -1774,6 +1798,14 @@ def test_encode_decode_no_carrier():
     assert info["rows"] == CFG.rows and meta["password_ok"]
     assert meta["confidence"] > 0.4
 
+def test_decoded_grid_matches_sent_grid():
+    from app.pipeline.image_io import prepare
+    wav, _ = encode(_image(), "rainy-day-42")
+    png, _ = decode(wav, "rainy-day-42")
+    got = np.asarray(Image.open(io.BytesIO(png)), np.float64) / 255.0
+    sent = prepare(_image(), CFG.rows)
+    assert 10 * np.log10(1.0 / np.mean((got - sent) ** 2)) > 40.0
+
 def test_wrong_password_gives_noise():
     wav, _ = encode(_image(), "rainy-day-42")
     _, meta = decode(wav, "rainy-day-43")
@@ -1874,6 +1906,7 @@ def test_colour_wrong_password():
 | `test_stft_perfect_reconstruction` | STFT then ISTFT returns the original signal (B.4) |
 | `test_key_schedule_round_trip` | scramble and unscramble are exact inverses (B.10) |
 | `test_encode_decode_no_carrier` | the whole pipeline works end to end |
+| `test_decoded_grid_matches_sent_grid` | the decoded grid is above 40 dB PSNR against the grid that was sent, so columns do not bleed into each other (B.6) |
 | `test_wrong_password_gives_noise` | the security claim (B.10) |
 | `test_payload_is_band_limited` | nothing leaks below 15 kHz — this is the test that caught the edge-click bug (B.4) |
 | `test_bmp_reader_matches_pillow` | our BMP parser is byte-correct, including row padding (B.11) |
@@ -1884,7 +1917,7 @@ def test_colour_wrong_password():
 | `test_layout_marker_is_read_correctly` | grayscale and colour are told apart (B.13) |
 | `test_colour_wrong_password` | the security claim holds for colour too |
 
-`cd backend && python -m pytest app/tests -q` — **fifteen tests, about eight seconds.**
+`cd backend && python -m pytest app/tests -q` — **sixteen tests, about thirty seconds.**
 
 ---
 # Part G — What we measured
@@ -1903,7 +1936,10 @@ def test_colour_wrong_password():
 | our BMP writer → our reader, and → Pillow | byte-identical |
 | 32-bit BMP with an alpha channel | byte-identical |
 
-### Real photographs in grayscale, 150 × 150, 6.6 s, rain carrier, after 16-bit rounding
+### Real photographs in grayscale, 150 × 150, rain carrier, after 16-bit rounding
+
+Measured with the old `reps = 4, guard = 1` (6.6 s). The photos are not in the repository, so
+these rows have not been re-run at `reps = 8, guard = 2`. See the grid comparison below.
 
 | photo | correlation | PSNR | confidence, right password | confidence, wrong password |
 |---|---|---|---|---|
@@ -1911,7 +1947,9 @@ def test_colour_wrong_password():
 | tree at sunset | 0.986 | 26.5 dB | 0.94 | 0.07 |
 | nebula | 0.991 | 28.7 dB | 0.95 | 0.11 |
 
-### The same photographs in colour, 150 × 150 RGB, 9.8 s
+### The same photographs in colour, 150 × 150 RGB
+
+Also measured with the old `reps = 4, guard = 1` (9.8 s), and not re-run.
 
 | photo | PSNR (RGB) | confidence, right password | confidence, wrong password |
 |---|---|---|---|
@@ -1919,7 +1957,21 @@ def test_colour_wrong_password():
 | tree at sunset | 23.4 dB | 0.94 | 0.08 |
 | nebula | 28.5 dB | 0.95 | 0.11 |
 
-Encode about 0.3 s, decode about 0.4 s (the decoder tries both presets, and the first call
+### Decoded grid against the sent grid, `reps = 8, guard = 2`
+
+PSNR of the decoded picture against the exact grid the encoder sent (`image_io.prepare`), so
+the resize and the autocontrast do not count against it. Grayscale, 48 kHz standard.
+
+| picture | reps 4, guard 1 | reps 8, guard 2 |
+|---|---|---|
+| `sample.bmp`, no carrier | 25.1 dB | 49.1 dB |
+| `sample.bmp`, rain carrier | 25.1 dB | 49.2 dB |
+| smooth synthetic, 150 × 150 | 26.5 dB | 49.9 dB |
+| hard-edged blocks, 150 × 150 | 24.3 dB | 49.2 dB |
+
+The carrier makes no difference, which confirms that the haze came from column bleed (B.6).
+
+Encode about 0.8 s, decode about 1.3 s for a grayscale standard picture (the decoder tries both presets, and the first call
 also pays for the PBKDF2 password stretch). Payload energy below 15 kHz: **0.000000 %**.
 Hidden band sits about **25 dB** below the carrier band, depending on the carrier.
 
@@ -1929,6 +1981,13 @@ All twelve combinations of {3 photos} × {grayscale, colour} × {standard, detai
 the right preset, the right colour mode and the right picture width, with no hint from the
 user. Every wrong password scores below 0.15 and is reported as a failure.
 
+Re-run at `reps = 8, guard = 2` with `sample.bmp` and two synthetic pictures, since the photos
+are not in the repository: all twelve combinations again decode with the right preset, colour
+mode and width, and every wrong password is reported as a failure. Ten of the twelve score below
+0.15. The smooth synthetic picture in colour scores 0.153 (standard) and 0.186 (detail), still
+well under the 0.25 pass mark. It scored 0.156 and 0.182 at `reps = 4` as well, so this comes
+from the picture, not from the change.
+
 ### Every design choice, with the measurement behind it
 
 | Choice | Alternative | Numbers |
@@ -1937,7 +1996,7 @@ user. Every wrong password scores below 0.15 and is reported as a failure.
 | bin spacing 2 | spacing 1 | 0.98 vs 0.59 — exactly what B.3 predicts |
 | bin spacing 2 | spacing 4 | 0.98 vs 0.99, but half the picture. Spacing 2 is free |
 | coherent phase advance | random phase per frame | consistent STFT, no Griffin–Lim needed |
-| reps 4, guard 1 | reps 1 | 0.98 vs 0.43 |
+| reps 8, guard 2 | reps 4, guard 1 | PSNR 49.1 vs 25.1 dB against the sent grid, for twice the audio |
 | per-column shuffle | full 2D cell shuffle | 0.97 vs 0.86 |
 | 4 blank frames at each end | none | click carrying **14.2 %** of the energy |
 | dynamic range 30 dB | 45 dB | PSNR 27.5 vs 22.8 |
@@ -1964,7 +2023,7 @@ user. Every wrong password scores below 0.15 and is reported as a failure.
   15 kHz sees energy that an ordinary recording would not have. Say so; claiming
   undetectability would be wrong.
 - **Colour costs 1.5× the audio length**, not 3×, thanks to chroma subsampling (B.12). It is a
-  real trade, not a free feature: a 150 × 150 colour picture is 9.8 s against 6.6 s in
+  real trade, not a free feature: a 150 × 150 colour picture is 19.5 s against 13.1 s in
   grayscale. Saturated colours in dark regions show some speckle, because chroma is the plane
   we chose to sample coarsely.
 - **BMP, PNG and JPEG all work as input.** BMP goes through our own parser. The format makes no
@@ -2154,8 +2213,8 @@ function EncodePanel() {
           </select>
         </div>
         <p className="hint">
-          Estimated length: {detail === "standard" ? (colour ? "~9.8 s" : "~6.6 s")
-                                                  : (colour ? "~38 s" : "~26 s")}
+          Estimated length: {detail === "standard" ? (colour ? "~19.5 s" : "~13.1 s")
+                                                  : (colour ? "~77 s" : "~52 s")}
         </p>
         <button className="go" disabled={!image || password.length < 4 || busy} onClick={run}>
           {busy ? "Encoding…" : "Hide image in audio"}

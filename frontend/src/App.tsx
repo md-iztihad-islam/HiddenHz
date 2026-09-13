@@ -411,11 +411,11 @@ function DecodePanel({ input, setInput, presets }: {
           <h2 className="rear-title" id="dec-method">How it is read</h2>
           <p>
             The decoder takes the same STFT and keeps the magnitude at the tone bins, the band in
-            Figure 2. Each image column was held for four frames; it averages the middle two, away
+            Figure 2. Each image column was held for eight frames; it averages the middle four, away
             from the column edges:
           </p>
           <Eq n={3}>
-            <i>Â</i>[<i>k</i>, <i>c</i>] = ½ Σ<sub><i>t</i> ∈ core(<i>c</i>)</sub>
+            <i>Â</i>[<i>k</i>, <i>c</i>] = ¼ Σ<sub><i>t</i> ∈ core(<i>c</i>)</sub>
             {" "}|<i>X</i>[<i>k</i>, <i>t</i>]|
           </Eq>
           <p>
@@ -490,7 +490,7 @@ export default function App() {
           <p className={"online online--" + backend} aria-live="polite">
             <span className="lamp-dot" aria-hidden="true" />
             {backend === "checking" && "Backend…"}
-            {backend === "up" && "Backend :8000"}
+            {backend === "up" && "Backend"}
             {backend === "down" && "Backend offline"}
           </p>
         </header>
@@ -509,7 +509,7 @@ export default function App() {
       </div>
 
       <footer className="folio">
-        <span>CSE 220 Signals and Linear Systems · Iztihad (encoder), Rayyan (decoder and API)</span>
+        <span>CSE 220 Signals and Linear Systems</span>
         <span>Every spectrogram here is drawn with the codec's own radix-2 FFT.</span>
       </footer>
     </div>
