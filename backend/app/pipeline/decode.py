@@ -13,10 +13,8 @@ from .image_io import HEADER_COLS, read_header, to_pixels, to_png, unpack_colour
 
 def confidence(grid: np.ndarray) -> float:
     """
-    Is this a picture, or is it noise?
-    Real photographs are smooth, so most of their 2D spectrum sits at low spatial
-    frequency. White noise spreads its energy evenly. We measure the fraction of energy
-    in the low-frequency corners: about 0.8 for a real picture, about 0.07 for noise.
+    Fraction of 2D spectral energy at low spatial frequency. Photographs are smooth and
+    score about 0.8; white noise spreads evenly and scores about 0.07.
     """
     F = np.abs(np.fft.fft2(grid - grid.mean())) ** 2   # diagnostic only, not the codec
     h, w = max(1, grid.shape[0] // 8), max(1, grid.shape[1] // 8)

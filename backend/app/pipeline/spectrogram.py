@@ -1,9 +1,8 @@
 """
 WAV -> pictures of its spectrogram, for the frontend's figures.
 
-Not part of the codec: nothing here feeds encode or decode. It deliberately uses the
-codec's own stft (and so our fft_core), so the figure on screen is the same transform
-that hides and recovers the image.
+Not part of the codec. Uses the codec's own stft, so the figure shows the same
+transform that hides and recovers the image.
 """
 import io
 import math
@@ -15,11 +14,9 @@ from PIL import Image
 from ..config import CFG, config_for
 from ..dsp.stft import stft
 
-# shown below the loudest bin; quieter prints as paper. The 16-bit quantisation floor
-# sits about 77 dB down (B.9), so 70 keeps it off the page.
+# dB below the loudest bin that still shows. The 16-bit floor is ~77 dB down (B.9).
 RANGE_DB = 70.0
-# the band on its own: the image spans dynamic_db = 30 dB, plus a little headroom.
-# Without its own scale the band prints as pale haze under a loud carrier.
+# the band alone: dynamic_db = 30 dB plus headroom, so a loud carrier cannot wash it out
 BAND_RANGE_DB = 40.0
 
 

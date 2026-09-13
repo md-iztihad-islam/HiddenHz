@@ -1,11 +1,7 @@
 """
-A BMP reader and writer in about forty lines, with no image library.
-
-Why this file exists: BMP stores raw pixels behind a fixed-size header, so it can be
-parsed with struct.unpack and a reshape. PNG needs a zlib inflater and an unfiltering
-pass; JPEG needs a Huffman decoder and an inverse DCT. If the requirement is to handle
-the image format ourselves rather than call Pillow, BMP is the only one that is
-reasonable to write by hand.
+BMP reader and writer with no image library. BMP is raw pixels behind a fixed-size
+header, so struct.unpack and a reshape are enough; PNG and JPEG would need zlib or a
+Huffman decoder and inverse DCT. See B.11.
 """
 import struct
 import numpy as np

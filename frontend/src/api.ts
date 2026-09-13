@@ -1,4 +1,4 @@
-// The only file that knows the backend exists (PLAN J.1).
+// All backend calls go through here (PLAN J.1).
 const BASE = "http://localhost:8000";
 
 export const BACKEND_DOWN =

@@ -32,12 +32,12 @@ def header_column(rows: int, colour: bool) -> np.ndarray:
     A two-column marker that says whether the rest of the grid is grayscale or packed
     colour. It is needed because the two layouts can produce exactly the same number of
     grid columns: a 150-column grid is either a 150-wide grayscale picture or a
-    100-wide colour one, and nothing in the audio length distinguishes them.
+    100-wide colour one.
 
     colour    -> every row full brightness, so the column averages 1.0
     grayscale -> alternating rows, so it averages 0.5
 
-    The marker is scrambled along with everything else, so it gives an attacker nothing.
+    The marker is scrambled with everything else.
     """
     if colour:
         col = np.ones(rows)
@@ -144,5 +144,5 @@ def to_png(grid: np.ndarray) -> bytes:
 
 
 def to_bmp(grid: np.ndarray) -> bytes:
-    """Written with our own writer, so the whole BMP path is ours end to end."""
+    """Uses our own writer in bmp.py."""
     return write_bmp((np.clip(grid, 0, 1) * 255).astype(np.uint8))

@@ -11,22 +11,17 @@ ITERATIONS = 200_000        # PBKDF2 work factor: about 0.1 s per password guess
 @functools.lru_cache(maxsize=8)
 def _stretch(password: str) -> bytes:
     """
-    The slow half. PBKDF2 is a deliberately expensive hash, so an attacker testing a
-    dictionary pays 0.1 s per guess. Cached, because one decode may try several
-    layouts with the same password and there is no point paying twice.
+    PBKDF2 makes each dictionary guess cost about 0.1 s. Cached because one decode
+    tries several layouts with the same password.
     """
     return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), SALT, ITERATIONS, 32)
 
 
 def key_rng(password: str, rows: int, cols: int) -> np.random.Generator:
     """
-    Turn (password, picture shape) into a random number generator.
-
-    The shape is mixed into the seed on purpose. Without it, guessing the wrong number
-    of columns would still reproduce the first N row permutations correctly, because a
-    generator hands out the same numbers in the same order. Mixing the shape in means
-    any wrong guess about the layout gives a completely unrelated stream, so a wrong
-    guess produces noise and can be detected.
+    (password, picture shape) -> generator. The shape is mixed into the seed so a wrong
+    guess of cols gives an unrelated stream, not the encoder's first N permutations.
+    See B.13.
     """
     base = _stretch(password)
     seed = hashlib.sha256(base + b"|%d|%d" % (rows, cols)).digest()
