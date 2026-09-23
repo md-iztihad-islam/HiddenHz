@@ -424,6 +424,37 @@ sub, sup { font-size: 0.72em; line-height: 0; }
 .key-glyph { width: 1.15em; height: 1.15em; flex: none; }
 .action-hint { margin: 0.55rem 0 0; font-size: var(--t-xs); color: var(--ink-3); }
 
+/* ------------------------------------------------------------ microphone recorder */
+.recorder { margin: -0.35rem 0 0.85rem; }
+.recorder-row { display: flex; align-items: center; gap: 0.6rem; }
+.recorder .key--rec { color: var(--stop); }
+.rec-dot {
+  width: 0.6rem; height: 0.6rem; flex: none; border-radius: 50%;
+  background: var(--lamp-off);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
+}
+.recorder-row.is-recording .rec-dot {
+  background: var(--stop);
+  animation: blink 1s steps(2, jump-none) infinite;
+}
+.recorder-meter {
+  flex: 1; min-width: 0; height: 0.5rem; overflow: hidden;
+  background: var(--well); border-radius: 999px; box-shadow: var(--press);
+}
+.recorder-meter-fill {
+  display: block; width: 100%; height: 100%;
+  transform: scaleX(0); transform-origin: left center;
+  background: linear-gradient(90deg, var(--go), var(--accent));
+  transition: transform 0.06s linear;
+}
+.recorder-time {
+  flex: none; min-width: 2.6rem; text-align: right;
+  font-variant-numeric: tabular-nums; font-weight: 650;
+  font-size: var(--t-xs); color: var(--ink-3);
+}
+.recorder-time.is-live { color: var(--stop); }
+.recorder-hint { margin-top: 0.4rem; }
+
 .alert, .notice {
   margin-top: 0.8rem;
   padding: 0.75rem 0.9rem;
@@ -716,6 +747,7 @@ sub, sup { font-size: 0.72em; line-height: 0; }
 
 @media (prefers-reduced-motion: reduce) {
   .sweep, .rows-in, .lamp--busy .lamp-dot, .verdict--busy .lamp-dot,
+  .recorder-row.is-recording .rec-dot,
   .key--primary[aria-busy="true"] .key-glyph { animation: none; }
   * { transition-duration: 0s !important; }
 }

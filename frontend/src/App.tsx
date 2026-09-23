@@ -3,7 +3,9 @@ import {
   BACKEND_DOWN, decode, encode, getConfig, spectrogram,
   type DecodeInfo, type EncodeInfo, type Plate, type Presets,
 } from "./api";
-import { Alert, FilePicker, PasswordField, Segmented, Switch, useObjectUrl } from "./fields";
+import {
+  Alert, AudioRecorder, FilePicker, PasswordField, Segmented, Switch, useObjectUrl,
+} from "./fields";
 import {
   Caption, Lamp, PixelView, Readout, SpectrumFigure, blankGeometry, type LampTone,
 } from "./figures";
@@ -155,9 +157,11 @@ function EncodePanel({ presets, onEncoded, onGoDecode }: {
           <h1 className="face-title" id="enc-title">Hide an image in sound</h1>
           <FilePicker label="Image" kind="image" accept=".bmp,.png,.jpg,.jpeg,image/*"
             file={image} onPick={setImage} />
-          <FilePicker label="Carrier" optional kind="audio" accept=".wav,.flac,audio/*"
+          <FilePicker label="Carrier" optional kind="audio" accept="audio/*"
             file={carrier} onPick={setCarrier}
-            hint="44.1 or 48 kHz, such as rain. Without one, the band alone." />
+            emptyMeta="Most formats · converted to WAV"
+            hint="Any common format (MP3, M4A, WAV…), converted on the server. 44.1 or 48 kHz keeps the most detail. Without one, the band alone." />
+          <AudioRecorder disabled={phase !== "idle"} onRecorded={setCarrier} />
           <PasswordField value={password} onChange={setPassword} min={4} />
 
           <div className="options">
@@ -319,8 +323,9 @@ function DecodePanel({ input, setInput, presets }: {
           <h1 className="face-title" id="dec-title">Recover the image</h1>
           <p className="lede">Only the password is needed; the preset and layout are read from
             the file.</p>
-          <FilePicker label="Stego audio" kind="audio" accept=".wav,.flac,audio/*"
+          <FilePicker label="Stego audio" kind="audio" accept="audio/*"
             file={input?.file ?? null}
+            emptyMeta="WAV or FLAC · lossy formats lose the image"
             note={input?.fromEncode ? "from Encode" : undefined}
             onPick={(f) => setInput(f ? { file: f, plate: null, fromEncode: false } : null)} />
           <PasswordField value={password} onChange={changePassword} />

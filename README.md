@@ -4,7 +4,7 @@ Hide an image inside an ordinary-sounding audio file, above 15 kHz, behind a pas
 
 CSE 220 Signals and Linear Systems. Iztihad (encoder), Rayyan (decoder + API).
 
-Repo: <https://github.com/md-iztihad-islam/HiddenHz>
+Repo: [https://github.com/md-iztihad-islam/HiddenHz](https://github.com/md-iztihad-islam/HiddenHz)
 
 Work is split by **branch**, not by folder: `feat/encode` and `feat/decode`. The encoder and
 decoder import the same `config.py`, `dsp/` and `keying/`, so those must never be duplicated.

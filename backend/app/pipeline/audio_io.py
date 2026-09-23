@@ -1,8 +1,87 @@
 """WAV in and out, plus the carrier band clearing from Part B.7."""
 import io
+import os
+import shutil
+import subprocess
+import tempfile
+
 import numpy as np
 import soundfile as sf
 from ..dsp.fft_core import rfft, irfft, next_power_of_two
+
+
+# ---------------------------------------------------------------- format intake
+# Containers libsndfile reads directly, so there is nothing to gain from a detour
+# through ffmpeg: hand them straight to the pipeline, byte for byte.
+_PASSTHROUGH = {"WAV", "WAVEX", "FLAC", "OGG", "AIFF", "AIFF-C", "W64", "RF64"}
+
+
+def _ffmpeg_exe() -> str | None:
+    """
+    Locate an ffmpeg binary: an explicit FFMPEG_BINARY override, one on PATH, or the
+    copy that `pip install imageio-ffmpeg` ships. None means "not available".
+    """
+    exe = os.environ.get("FFMPEG_BINARY") or shutil.which("ffmpeg")
+    if exe:
+        return exe
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return None
+
+
+def _ffmpeg_to_wav(exe: str, data: bytes) -> bytes:
+    """Transcode arbitrary audio bytes to 16-bit PCM WAV, keeping the source rate."""
+    with tempfile.TemporaryDirectory() as d:
+        src = os.path.join(d, "in")
+        dst = os.path.join(d, "out.wav")
+        with open(src, "wb") as f:
+            f.write(data)
+        # -map 0:a:0 takes the first audio stream, so a file that also carries video
+        # (an .mp4 voice memo, say) still converts. No -ar: the rate is left untouched.
+        proc = subprocess.run(
+            [exe, "-hide_banner", "-loglevel", "error", "-y",
+             "-i", src, "-map", "0:a:0", "-c:a", "pcm_s16le", dst],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+        )
+        if proc.returncode != 0 or not os.path.exists(dst) or os.path.getsize(dst) == 0:
+            tail = proc.stderr.decode("utf-8", "replace").strip().splitlines()
+            raise ValueError("could not convert this audio to WAV: %s"
+                             % (tail[-1] if tail else "ffmpeg reported no audio stream"))
+        with open(dst, "rb") as f:
+            return f.read()
+
+
+def to_wav_bytes(data: bytes, filename: str = "") -> bytes:
+    """
+    Normalise any uploaded audio to WAV bytes the rest of the pipeline can read.
+
+    WAV, FLAC, OGG and the other containers libsndfile handles are returned unchanged.
+    Everything else - MP3, M4A/AAC, Opus, the WebM the browser's microphone recorder
+    produces - is transcoded with ffmpeg. A lossy source has already lost the band above
+    ~15 kHz, so converting it recovers no hidden image; it just lets the file be read.
+    """
+    if not data:
+        raise ValueError("the audio file is empty")
+
+    try:
+        fmt = sf.info(io.BytesIO(data)).format
+    except Exception:
+        fmt = None
+    if fmt in _PASSTHROUGH:
+        return data
+
+    exe = _ffmpeg_exe()
+    if exe:
+        return _ffmpeg_to_wav(exe, data)
+    if fmt:                      # libsndfile can decode it even with no ffmpeg present
+        return data
+
+    where = " (%s)" % filename if filename else ""
+    raise ValueError(
+        "could not read this audio%s. Install ffmpeg on the server to accept MP3, M4A, "
+        "Opus and similar formats, or upload WAV or FLAC." % where)
 
 
 def read_wav(data: bytes, sample_rate: int) -> np.ndarray:

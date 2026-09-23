@@ -6,6 +6,7 @@ from ..config import CFG, config_for
 from ..pipeline.encode import encode
 from ..pipeline.decode import decode
 from ..pipeline.spectrogram import spectrogram
+from ..pipeline.audio_io import to_wav_bytes
 
 app = FastAPI(title="HiddenHz API", version="1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"],
@@ -37,8 +38,10 @@ async def api_encode(image: UploadFile = File(...),
     if len(password) < 4:
         raise HTTPException(400, "password must be at least 4 characters")
     try:
-        wav, info = encode(await image.read(), password,
-                           await carrier.read() if carrier else None, max_cols,
+        carrier_bytes = None
+        if carrier:
+            carrier_bytes = to_wav_bytes(await carrier.read(), carrier.filename or "")
+        wav, info = encode(await image.read(), password, carrier_bytes, max_cols,
                            sample_rate=sample_rate, detail=detail, colour=colour)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
@@ -48,7 +51,8 @@ async def api_encode(image: UploadFile = File(...),
 async def api_decode(audio: UploadFile = File(...), password: str = Form(...),
                      detail: str = Form("auto")):
     try:
-        png, meta = decode(await audio.read(), password, detail=detail)
+        png, meta = decode(to_wav_bytes(await audio.read(), audio.filename or ""),
+                           password, detail=detail)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     return {"info": meta, "png_base64": base64.b64encode(png).decode()}
@@ -57,7 +61,8 @@ async def api_decode(audio: UploadFile = File(...), password: str = Form(...),
 async def api_spectrogram(audio: UploadFile = File(...)):
     """Figure data for the frontend, computed with the codec's own STFT."""
     try:
-        png, band_png, info = spectrogram(await audio.read())
+        png, band_png, info = spectrogram(to_wav_bytes(await audio.read(),
+                                                        audio.filename or ""))
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     return {"info": info, "png_base64": base64.b64encode(png).decode(),
