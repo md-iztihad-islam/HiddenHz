@@ -75,7 +75,9 @@ function Limits() {
 function EncodePanel({ presets, onEncoded, onGoDecode }: {
   presets: Presets | null; onEncoded: (s: Stego) => void; onGoDecode: () => void;
 }) {
+  const [kind, setKind] = useState<"image" | "file">("image");
   const [image, setImage] = useState<File | null>(null);
+  const [file, setFile] = useState<File | null>(null);
   const [carrier, setCarrier] = useState<File | null>(null);
   const [password, setPassword] = useState("");
   const [colour, setColour] = useState(true);
@@ -95,13 +97,15 @@ function EncodePanel({ presets, onEncoded, onGoDecode }: {
   const secs = (p?: typeof p48) => p && (colour ? p.seconds_for_square_colour : p.seconds_for_square_gray);
   const seconds = secs(p48);
   const nFft = p48?.n_fft ?? 2048;
-  const ready = !!image && password.length >= 4 && phase === "idle";
+  const isFile = kind === "file";
+  const payload = isFile ? file : image;
+  const ready = !!payload && password.length >= 4 && phase === "idle";
 
   const run = async () => {
-    if (!image) return;
+    if (!payload) return;
     setErr(""); setPlateErr(""); setOut(null); setPlate(null); setPhase("encoding");
     try {
-      const r = await encode(image, password, carrier, detail, colour);
+      const r = await encode(payload, password, carrier, detail, colour && !isFile, isFile);
       const wav = new File([r.wav], "stego.wav", { type: "audio/wav" });
       setOut({ info: r.info, wav, carrier: !!carrier });
       setPhase("measuring");
@@ -154,9 +158,17 @@ function EncodePanel({ presets, onEncoded, onGoDecode }: {
     <>
       <div className="face">
         <section className="controls" aria-labelledby="enc-title">
-          <h1 className="face-title" id="enc-title">Hide an image in sound</h1>
-          <FilePicker label="Image" kind="image" accept=".bmp,.png,.jpg,.jpeg,image/*"
-            file={image} onPick={setImage} />
+          <h1 className="face-title" id="enc-title">Hide {isFile ? "a file" : "an image"} in sound</h1>
+          <Segmented<"image" | "file"> label="Hide" value={kind} onChange={setKind} options={[
+            { value: "image", label: "Image" },
+            { value: "file", label: "File", sub: "PDF, ZIP…" },
+          ]} />
+          {isFile
+            ? <FilePicker label="File" kind="file" accept="*/*"
+                file={file} onPick={setFile}
+                hint="Any file up to about 70 KB (a short PDF, a text file, a small ZIP), recovered byte-for-byte. MP3 or re-recording the audio destroys it." />
+            : <FilePicker label="Image" kind="image" accept=".bmp,.png,.jpg,.jpeg,image/*"
+                file={image} onPick={setImage} />}
           <FilePicker label="Carrier" optional kind="audio" accept="audio/*"
             file={carrier} onPick={setCarrier}
             emptyMeta="Most formats · converted to WAV"
@@ -165,12 +177,19 @@ function EncodePanel({ presets, onEncoded, onGoDecode }: {
           <PasswordField value={password} onChange={setPassword} min={4} />
 
           <div className="options">
-            <Switch label="Colour" checked={colour} onChange={setColour} />
+            {!isFile && <Switch label="Colour" checked={colour} onChange={setColour} />}
             <Segmented<Detail> label="Preset" value={detail} onChange={setDetail} options={[
               { value: "standard", label: "Standard", sub: std ? `${std.rows} rows` : undefined },
               { value: "detail", label: "Detail", sub: det ? `${det.rows} rows` : undefined },
             ]} />
           </div>
+          {isFile && (
+            <p className="hint">
+              About 125 bytes per second of audio: a 4 KB file takes about 30 s, and the
+              limit is about 70 KB (10 minutes), or about 50 KB with a 44.1 kHz carrier.
+              Share the result as WAV only.
+            </p>
+          )}
 
           <div className="estimate">
             <Readout legend="Rows" value={p48 ? String(p48.rows) : null} cells={3} />
@@ -188,13 +207,13 @@ function EncodePanel({ presets, onEncoded, onGoDecode }: {
           <button type="button" className="key key--primary" disabled={!ready}
             aria-busy={phase !== "idle"} onClick={run}>
             <RecordGlyph />
-            <span>{phase === "idle" ? "Hide image in audio"
+            <span>{phase === "idle" ? `Hide ${isFile ? "file" : "image"} in audio`
               : phase === "encoding" ? "Synthesising stego.wav…" : "Measuring the spectrogram…"}</span>
           </button>
           {!ready && phase === "idle" && (
             <p className="action-hint">
-              {!image ? "Choose an image" : "Enter a password"}
-              {!image && password.length < 4 ? " and a password" : ""} to continue.
+              {!payload ? `Choose ${isFile ? "a file" : "an image"}` : "Enter a password"}
+              {!payload && password.length < 4 ? " and a password" : ""} to continue.
             </p>
           )}
           {err && <Alert>{err}</Alert>}
@@ -267,11 +286,13 @@ function DecodePanel({ input, setInput, presets }: {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const [out, setOut] = useState<{ info: DecodeInfo; png: Blob } | null>(null);
+  const [out, setOut] = useState<{ info: DecodeInfo; png: Blob | null;
+    file: Blob | null; filename?: string } | null>(null);
   const [plate, setPlate] = useState<Plate | null>(null);
   const [plateBusy, setPlateBusy] = useState(false);
   const [plateErr, setPlateErr] = useState("");
   const outUrl = useObjectUrl(out?.png ?? null);
+  const fileUrl = useObjectUrl(out?.file ?? null);
   const resultRef = useRef<HTMLDivElement>(null);
   // bumped on every new decode, file or password so stale responses are ignored
   const req = useRef(0);
@@ -313,7 +334,10 @@ function DecodePanel({ input, setInput, presets }: {
 
   const det = presets?.["48000/detail"];
   const figBand = plate?.info.band_hz ?? DEFAULT_BAND;
-  const verdict: "ok" | "stop" | null = out ? (out.info.password_ok === true ? "ok" : "stop") : null;
+  const outIsFile = !!out?.info.is_file;
+  const verdict: "ok" | "stop" | null = out
+    ? ((outIsFile ? out.info.file_ok === true : out.info.password_ok === true) ? "ok" : "stop")
+    : null;
   const conf = out ? out.info.confidence.toFixed(2) : "";
 
   return (
@@ -372,42 +396,66 @@ function DecodePanel({ input, setInput, presets }: {
               <p className={"verdict verdict--" + (verdict ?? (busy ? "busy" : "idle"))}
                 aria-live="polite">
                 <span className="lamp-dot" aria-hidden="true" />
-                {verdict === "ok" ? "Password accepted"
-                  : verdict === "stop" ? "Password incorrect"
+                {verdict === "ok" ? (outIsFile ? "File recovered" : "Password accepted")
+                  : verdict === "stop" ? (outIsFile ? "File corrupted" : "Password incorrect")
                   : busy ? "Decoding" : "Standby"}
               </p>
-              <Readout legend="Confidence" value={out ? conf : null} cells={3} big inline />
+              {!outIsFile &&
+                <Readout legend="Confidence" value={out ? conf : null} cells={3} big inline />}
             </div>
-            {outUrl && out
-              ? <PixelView src={outUrl} cols={out.info.cols} rows={out.info.rows}
-                  alt={verdict === "ok" ? "The recovered image"
-                                        : "Noise recovered with an incorrect password"} />
-              : <div className="viewfinder viewfinder--empty">
-                  <span className={busy ? "is-busy" : ""}>
-                    {busy ? "Decoding: trying both presets…" : "The recovered image appears here."}
+            {outIsFile && out
+              ? <div className="filecard">
+                  <span className="filecard-name">{out.filename ?? "recovered.bin"}</span>
+                  <span className="filecard-meta">
+                    {out.info.bytes ?? 0} bytes · CRC {out.info.file_ok ? "verified" : "failed"}
                   </span>
-                </div>}
+                  {fileUrl && verdict === "ok"
+                    ? <a className="key key--primary" href={fileUrl}
+                        download={out.filename ?? "recovered.bin"}>Download file</a>
+                    : <p className="hint hint--bad">The bytes did not survive the channel. Decode
+                        the original WAV, not a re-recorded or converted copy.</p>}
+                </div>
+              : outUrl && out
+                ? <PixelView src={outUrl} cols={out.info.cols ?? 0} rows={out.info.rows}
+                    alt={verdict === "ok" ? "The recovered image"
+                                          : "Noise recovered with an incorrect password"} />
+                : <div className="viewfinder viewfinder--empty">
+                    <span className={busy ? "is-busy" : ""}>
+                      {busy ? "Decoding: trying both presets…" : "The recovered image appears here."}
+                    </span>
+                  </div>}
             <div className="readouts">
-              <Readout legend="Pass mark" value={PASS_MARK.toFixed(2)} cells={3} />
-              <Readout legend="Width" unit="px" value={out ? String(out.info.cols) : null} cells={3} />
-              <Readout legend="Height" unit="px" value={out ? String(out.info.rows) : null} cells={3} />
+              {outIsFile
+                ? <>
+                    <Readout legend="Bytes" value={out ? String(out.info.bytes ?? 0) : null} cells={5} />
+                    <Readout legend="CRC" value={out ? (out.info.file_ok ? "OK" : "BAD") : null} cells={3} />
+                  </>
+                : <>
+                    <Readout legend="Pass mark" value={PASS_MARK.toFixed(2)} cells={3} />
+                    <Readout legend="Width" unit="px" value={out ? String(out.info.cols ?? 0) : null} cells={3} />
+                    <Readout legend="Height" unit="px" value={out ? String(out.info.rows) : null} cells={3} />
+                  </>}
             </div>
           </div>
           <Caption n={3} pending={!out}>
             {out
-              ? verdict === "ok"
-                ? <>Recovered image, {out.info.cols} × {out.info.rows} px,
-                    {" "}{out.info.colour ? "colour" : "grayscale"}; the {out.info.detail} preset
-                    and layout were read from the file. Confidence {conf}, above the {PASS_MARK} pass
-                    mark. Shown as real pixels, enlarged by whole multiples with no smoothing.
-                    {out.info.detail === "standard" && det
-                      ? <> For finer detail, encode with the Detail preset: {det.rows} × {det.rows} px
-                          for a square image, {det.seconds_for_square_colour} s of audio in colour.</>
-                      : null}</>
-                : <>What an incorrect password recovers: the same tone bins, read in the wrong
-                    order. Confidence {conf} is below the {PASS_MARK} pass mark.</>
-              : <>The recovered image, with the decoder's confidence that it is a picture rather
-                  than noise.</>}
+              ? outIsFile
+                ? verdict === "ok"
+                  ? <>Recovered file “{out.filename}”, {out.info.bytes} bytes, rebuilt bit-for-bit
+                      from the Hamming(7,4) error-corrected payload. A CRC-32 stored with the file
+                      matched, so every byte is confirmed intact.</>
+                  : <>The header decoded, but the file’s CRC-32 did not match: at least one bit was
+                      lost in the channel. Files carry no visual redundancy, so this is a hard fail —
+                      decode the original WAV rather than a re-recorded or converted copy.</>
+                : verdict === "ok"
+                  ? <>Recovered image, {out.info.cols} × {out.info.rows} px,
+                      {" "}{out.info.colour ? "colour" : "grayscale"}; the {out.info.detail} preset
+                      and layout were read from the file. Confidence {conf}, above the {PASS_MARK} pass
+                      mark. Shown as real pixels, enlarged by whole multiples with no smoothing.</>
+                  : <>What an incorrect password recovers: the same tone bins, read in the wrong
+                      order. Confidence {conf} is below the {PASS_MARK} pass mark.</>
+              : <>The recovered image or file, with the decoder's confidence that it read a real
+                  payload rather than noise.</>}
           </Caption>
         </section>
       </div>

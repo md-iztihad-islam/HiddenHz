@@ -20,15 +20,29 @@ export function formatBytes(n: number) {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function SlotGlyph({ kind }: { kind: "image" | "audio" }) {
-  return kind === "image" ? (
-    <svg className="slot-glyph" viewBox="0 0 40 40" aria-hidden="true">
-      <rect x="4" y="7" width="32" height="26" rx="2" fill="none" stroke="currentColor" strokeWidth="2" />
-      <path d="M8 29l8-9 6 6 4-4 6 7" fill="none" stroke="currentColor" strokeWidth="2"
-        strokeLinejoin="round" />
-      <circle cx="27" cy="14" r="2.5" fill="currentColor" />
-    </svg>
-  ) : (
+function SlotGlyph({ kind }: { kind: "image" | "audio" | "file" }) {
+  if (kind === "image") {
+    return (
+      <svg className="slot-glyph" viewBox="0 0 40 40" aria-hidden="true">
+        <rect x="4" y="7" width="32" height="26" rx="2" fill="none" stroke="currentColor" strokeWidth="2" />
+        <path d="M8 29l8-9 6 6 4-4 6 7" fill="none" stroke="currentColor" strokeWidth="2"
+          strokeLinejoin="round" />
+        <circle cx="27" cy="14" r="2.5" fill="currentColor" />
+      </svg>
+    );
+  }
+  if (kind === "file") {
+    return (
+      <svg className="slot-glyph" viewBox="0 0 40 40" aria-hidden="true">
+        <path d="M10 4h14l8 8v24a0 0 0 0 1 0 0H10a0 0 0 0 1 0 0V4z" fill="none"
+          stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+        <path d="M24 4v8h8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+        <path d="M15 22h10M15 27h10M15 17h5" stroke="currentColor" strokeWidth="2"
+          strokeLinecap="round" />
+      </svg>
+    );
+  }
+  return (
     <svg className="slot-glyph" viewBox="0 0 40 40" aria-hidden="true">
       <path d="M6 20h2M11 14v12M15 9v22M19 15v10M23 11v18M27 16v8M31 19v2M34 20h1"
         stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" fill="none" />
@@ -39,7 +53,7 @@ function SlotGlyph({ kind }: { kind: "image" | "audio" }) {
 export function FilePicker({ label, optional, hint, accept, file, onPick, kind, note,
   emptyMeta }: {
   label: string; optional?: boolean; hint?: ReactNode; accept: string; file: File | null;
-  onPick: (f: File | null) => void; kind: "image" | "audio"; note?: string;
+  onPick: (f: File | null) => void; kind: "image" | "audio" | "file"; note?: string;
   emptyMeta?: string;
 }) {
   const id = useId();
@@ -69,7 +83,8 @@ export function FilePicker({ label, optional, hint, accept, file, onPick, kind, 
           <span className="slot-meta">
             {file
               ? `${formatBytes(file.size)}${note ? ` · ${note}` : ""}`
-              : emptyMeta ?? (kind === "image" ? "BMP, PNG or JPEG" : "WAV or FLAC")}
+              : emptyMeta ?? (kind === "image" ? "BMP, PNG or JPEG"
+                  : kind === "file" ? "PDF, ZIP, TXT — any small file" : "WAV or FLAC")}
           </span>
         </span>
         <span className="slot-key">{file ? "Replace" : "Choose"}</span>

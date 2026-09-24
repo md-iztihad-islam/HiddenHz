@@ -1,4 +1,4 @@
-"""Stego WAV + password -> picture."""
+"""Stego WAV + password -> picture, or a hidden file."""
 import io
 
 import numpy as np
@@ -9,6 +9,7 @@ from ..dsp.stft import stft
 from ..keying.keyschedule import key_schedule, unscramble
 from .audio_io import read_wav
 from .image_io import HEADER_COLS, read_header, to_pixels, to_png, unpack_colour
+from .filecodec import decode_file, is_file_marker
 
 
 def confidence(grid: np.ndarray) -> float:
@@ -44,6 +45,20 @@ def _decode_with(wav_bytes: bytes, password: str, cfg: Config, threshold: float)
     grid = unscramble(mag, row_perms, col_perm)
     pixels = to_pixels(grid, cfg.dynamic_db)
 
+    if is_file_marker(pixels, HEADER_COLS):
+        # possibly a file (files send an all-zero marker, which noise can lift). The magic
+        # bytes decide: if they come back, the password was right and this is a file;
+        # the CRC then says whether every byte survived.
+        name, data, magic_ok, crc_ok = decode_file(pixels[:, HEADER_COLS:])
+        if magic_ok:
+            return data, {
+                "rows": cfg.rows, "cols": 0, "colour": False, "is_file": True,
+                "filename": name or "recovered.bin", "bytes": len(data),
+                "file_ok": crc_ok, "confidence": 1.0, "password_ok": True,
+            }
+        # no magic: wrong password (the marker was just noise); fall through to the
+        # picture path, which renders that noise and reports a low confidence
+
     colour = read_header(pixels)                  # the marker tells us the layout
     content = pixels[:, HEADER_COLS:]
     content_cols = content.shape[1]
@@ -60,13 +75,16 @@ def _decode_with(wav_bytes: bytes, password: str, cfg: Config, threshold: float)
     return to_png(picture), {
         "rows": cfg.rows, "cols": picture_cols, "colour": colour,
         "confidence": round(score, 4),
-        "password_ok": bool(score >= threshold),
+        "password_ok": bool(score >= threshold), "is_file": False,
     }
 
 
 def decode(wav_bytes: bytes, password: str, cfg: Config | None = None,
            detail: str = "auto", threshold: float = 0.25):
     """
+    Returns (payload, meta). payload is PNG bytes for a picture, or the raw file bytes
+    when meta["is_file"] is True.
+
     "auto" tries every combination of preset and colour mode and keeps whichever scores
     highest, so the user does not have to remember how the file was made.
 

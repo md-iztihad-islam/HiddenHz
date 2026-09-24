@@ -8,9 +8,10 @@ from ..pipeline.decode import decode
 from ..pipeline.spectrogram import spectrogram
 from ..pipeline.audio_io import to_wav_bytes
 
-app = FastAPI(title="HiddenHz API", version="1.0")
+app = FastAPI(title="HiddenHz API", version="1.1")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"],
                    allow_methods=["*"], allow_headers=["*"])
+
 
 @app.get("/api/config")
 def get_config():
@@ -27,9 +28,11 @@ def get_config():
             }
     return out
 
+
 @app.post("/api/encode")
-async def api_encode(image: UploadFile = File(...),
-                     password: str = Form(...),
+async def api_encode(password: str = Form(...),
+                     image: UploadFile | None = File(None),
+                     file: UploadFile | None = File(None),
                      carrier: UploadFile | None = File(None),
                      max_cols: int = Form(400),
                      sample_rate: int = Form(48000),
@@ -37,25 +40,33 @@ async def api_encode(image: UploadFile = File(...),
                      colour: bool = Form(False)):
     if len(password) < 4:
         raise HTTPException(400, "password must be at least 4 characters")
+    src = file or image
+    if src is None:
+        raise HTTPException(400, "attach an image or a file to hide")
     try:
-        carrier_bytes = None
-        if carrier:
-            carrier_bytes = to_wav_bytes(await carrier.read(), carrier.filename or "")
-        wav, info = encode(await image.read(), password, carrier_bytes, max_cols,
-                           sample_rate=sample_rate, detail=detail, colour=colour)
+        carrier_bytes = (to_wav_bytes(await carrier.read(), carrier.filename or "")
+                         if carrier else None)
+        wav, info = encode(await src.read(), password, carrier_bytes, max_cols,
+                           sample_rate=sample_rate, detail=detail, colour=colour,
+                           is_file=file is not None, filename=src.filename or "")
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     return {"info": info, "wav_base64": base64.b64encode(wav).decode()}
+
 
 @app.post("/api/decode")
 async def api_decode(audio: UploadFile = File(...), password: str = Form(...),
                      detail: str = Form("auto")):
     try:
-        png, meta = decode(to_wav_bytes(await audio.read(), audio.filename or ""),
-                           password, detail=detail)
+        payload, meta = decode(to_wav_bytes(await audio.read(), audio.filename or ""),
+                               password, detail=detail)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
-    return {"info": meta, "png_base64": base64.b64encode(png).decode()}
+    if meta.get("is_file"):
+        return {"info": meta, "file_base64": base64.b64encode(payload).decode(),
+                "filename": meta["filename"]}
+    return {"info": meta, "png_base64": base64.b64encode(payload).decode()}
+
 
 @app.post("/api/spectrogram")
 async def api_spectrogram(audio: UploadFile = File(...)):

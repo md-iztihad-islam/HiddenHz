@@ -43,11 +43,13 @@ export type Presets = Record<string, Preset>;
 export type EncodeInfo = {
   rows: number; cols: number; grid_cols: number; colour: boolean; frames: number;
   duration_s: number; band_hz: [number, number]; sample_rate: number;
-  n_fft: number; detail: string; note?: string;
+  n_fft: number; detail: string; is_file: boolean;
+  bytes?: number; filename?: string; note?: string;
 };
 export type DecodeInfo = {
-  rows: number; cols: number; colour: boolean;
-  confidence: number; password_ok: boolean; detail: string;
+  rows: number; cols?: number; colour: boolean; confidence: number;
+  password_ok: boolean; detail: string;
+  is_file: boolean; filename?: string; bytes?: number; file_ok?: boolean;
 };
 export type SpectrogramInfo = {
   sample_rate: number; n_fft: number; hop: number; bins: number; frames: number;
@@ -62,10 +64,11 @@ export function getConfig() {
   return request<Presets>("/api/config");
 }
 
-export async function encode(image: File, password: string, carrier: File | null,
-                             detail: string, colour: boolean) {
+export async function encode(payload: File, password: string, carrier: File | null,
+                             detail: string, colour: boolean,
+                             isFile: boolean) {
   const f = new FormData();
-  f.append("image", image);
+  f.append(isFile ? "file" : "image", payload);
   f.append("password", password);
   f.append("detail", detail);
   f.append("colour", String(colour));
@@ -80,8 +83,14 @@ export async function decode(audio: File, password: string) {
   f.append("audio", audio);
   f.append("password", password);
   f.append("detail", "auto");
-  const r = await post<{ info: DecodeInfo; png_base64: string }>("/api/decode", f);
-  return { info: r.info, png: b64ToBlob(r.png_base64, "image/png") };
+  const r = await post<{ info: DecodeInfo; png_base64?: string;
+                         file_base64?: string; filename?: string }>("/api/decode", f);
+  return {
+    info: r.info,
+    png: r.png_base64 ? b64ToBlob(r.png_base64, "image/png") : null,
+    file: r.file_base64 ? b64ToBlob(r.file_base64, "application/octet-stream") : null,
+    filename: r.filename,
+  };
 }
 
 /** Rendered by the backend with the codec's own STFT, so the figure is our FFT. */

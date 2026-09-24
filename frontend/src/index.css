@@ -781,3 +781,33 @@ sub, sup { font-size: 0.72em; line-height: 0; }
   .readout--big .seg { height: 2.1rem; }
   .viewfinder { height: clamp(14rem, 40vh, 22rem); }
 }
+
+/* recovered-file card (decode, file mode) */
+.filecard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1.4rem 1rem;
+  border: 1px solid var(--edge, rgba(0, 0, 0, 0.2));
+  border-radius: 10px;
+  background: var(--recess, rgba(0, 0, 0, 0.04));
+  text-align: center;
+}
+.filecard-name {
+  font-weight: 600;
+  font-size: 1.05rem;
+  word-break: break-all;
+}
+.filecard-meta {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+  font-size: 0.85rem;
+}
+.filecard .key {
+  margin-top: 0.35rem;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+.hint--bad { color: var(--bad, #b4232a); }

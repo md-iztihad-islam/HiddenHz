@@ -1,4 +1,4 @@
-"""Image + password + carrier  ->  stego WAV.  (Owner: Iztihad)"""
+"""Image or file + password + carrier  ->  stego WAV.  (Owner: Iztihad)"""
 import numpy as np
 from ..config import CFG, Config, config_for
 from ..dsp.stft import istft
@@ -6,6 +6,9 @@ from ..keying.keyschedule import key_schedule, scramble
 from .image_io import (HEADER_COLS, header_column, prepare, prepare_colour,
                        to_amplitude)
 from .audio_io import read_wav, write_wav, fit_length, clear_band, resample
+from .filecodec import encode_file, file_marker, seconds_for as file_seconds
+
+MAX_FILE_SECONDS = 600.0   # refuse files that would need more than ten minutes of audio
 
 def build_payload(grid: np.ndarray, password: str, cfg: Config = CFG) -> np.ndarray:
     """
@@ -43,7 +46,8 @@ def build_payload(grid: np.ndarray, password: str, cfg: Config = CFG) -> np.ndar
 
 def encode(image_bytes: bytes, password: str, carrier_bytes: bytes | None = None,
            max_cols: int = 400, cfg: Config | None = None,
-           sample_rate: int = 48000, detail: str = "standard", colour: bool = False):
+           sample_rate: int = 48000, detail: str = "standard", colour: bool = False,
+           is_file: bool = False, filename: str = ""):
     """
     If a carrier is supplied at 44100 or 48000 Hz, its sample rate wins, so the user never
     has to match the two by hand. A carrier at any other rate is resampled instead.
@@ -55,13 +59,26 @@ def encode(image_bytes: bytes, password: str, carrier_bytes: bytes | None = None
     if cfg is None:
         cfg = config_for(carrier_sr if carrier_sr in (44100, 48000) else sample_rate, detail)
 
-    if colour:
+    if is_file:
+        # a file is sent as error-corrected bits, not brightness; see filecodec.py
+        secs = file_seconds(len(image_bytes), filename, cfg.rows, cfg.sample_rate,
+                            cfg.reps, cfg.hop)
+        if secs > MAX_FILE_SECONDS:
+            raise ValueError("this file would need about %.0f minutes of audio (limit %.0f); "
+                             "hide a smaller file" % (secs / 60, MAX_FILE_SECONDS / 60))
+        colour = False
+        content = encode_file(image_bytes, filename, cfg.rows)
+        picture_cols = 0
+        marker = file_marker(cfg.rows, HEADER_COLS)
+    elif colour:
         content, picture_cols = prepare_colour(image_bytes, cfg.rows, max_cols)
+        marker = header_column(cfg.rows, colour)
     else:
         content = prepare(image_bytes, cfg.rows, max_cols)
         picture_cols = content.shape[1]
+        marker = header_column(cfg.rows, colour)
     # two marker columns at the front say which layout this is
-    grid = np.concatenate([header_column(cfg.rows, colour), content], axis=1)
+    grid = np.concatenate([marker, content], axis=1)
     payload = build_payload(grid, password, cfg)
 
     note = None
@@ -87,7 +104,11 @@ def encode(image_bytes: bytes, password: str, carrier_bytes: bytes | None = None
         "sample_rate": cfg.sample_rate,
         "n_fft": cfg.n_fft,
         "detail": "standard" if cfg.n_fft == 2048 else "detail",
+        "is_file": is_file,
     }
+    if is_file:
+        info["filename"] = filename
+        info["bytes"] = len(image_bytes)
     if note:
         info["note"] = note
     return write_wav(mix, cfg.sample_rate), info
