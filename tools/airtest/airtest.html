@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HiddenHz Air Test</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --fg: #1d1d1b; --muted: #6b6a64; --card: #ffffff; --line: #dedcd4;
+    --good: #2f7d4f; --ok: #b7791f; --bad: #b83a3a; --accent: #2c5d8f; --on-accent: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #151514; --fg: #ecebe6; --muted: #9a998f; --card: #1f1f1d;
+            --line: #33322e; --good: #5cbf85; --ok: #e0a84a; --bad: #e46b6b; --accent: #78a9dc;
+            --on-accent: #0f1720; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 0 0 8px; }
+  p { margin: 0 0 10px; }
+  .muted { color: var(--muted); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+          padding: 16px; margin-top: 16px; }
+  button, label.btn { font: inherit; padding: 8px 14px; border-radius: 8px; cursor: pointer;
+          border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+          display: inline-block; margin: 4px 6px 4px 0; }
+  button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  canvas { width: 100%; display: block; border-radius: 6px; background: #000; margin-top: 8px; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  td, th { padding: 4px 8px; border-bottom: 1px solid var(--line); text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  .bar { height: 10px; border-radius: 3px; }
+  .good { color: var(--good); } .ok { color: var(--ok); } .bad { color: var(--bad); }
+  code { font-size: 13px; }
+  #status { min-height: 1.5em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>HiddenHz air test</h1>
+  <p class="muted">Can a picture hidden at 15–22 kHz survive a speaker, a room and a microphone?
+    Laptop A plays the test signal; laptop B records it and scores each band.</p>
+
+  <div class="card">
+    <h2>Laptop A — play</h2>
+    <p class="muted">Set the system volume to what you would use in the demo (70–80 %).
+      Turn off any "audio enhancements" or equaliser. About <span id="dur"></span> s.</p>
+    <button class="primary" id="play">Play test signal</button>
+    <button id="dlTest">Download test WAV</button>
+  </div>
+
+  <div class="card">
+    <h2>Laptop B — record</h2>
+    <p class="muted">Start recording first, then press play on laptop A. Stop when the tones end.
+      Browser echo cancellation, noise suppression and auto gain are switched off here —
+      they would filter out exactly the band we care about.</p>
+    <button class="primary" id="rec">Start recording</button>
+    <button id="stop" disabled>Stop and analyse</button>
+    <button id="dlRec" disabled>Download recording</button>
+    <label class="btn">Analyse a WAV file…<input type="file" id="file" accept="audio/*" hidden></label>
+    <p id="status" class="muted"></p>
+    <canvas id="live" width="900" height="220"></canvas>
+    <p class="muted" style="font-size:13px">Live view, 7–23 kHz, bottom to top.</p>
+  </div>
+
+  <div class="card" id="results" hidden>
+    <h2>Result</h2>
+    <p id="verdict"></p>
+    <canvas id="spec" width="900" height="260"></canvas>
+    <p class="muted" style="font-size:13px">Recording spectrogram, 7–23 kHz. Each band should
+      show as a bright block of horizontal lines.</p>
+    <table id="table"></table>
+    <p class="muted" style="font-size:13px; margin-top:10px">SNR is the level of one codec tone
+      over the noise in the same DFT bin (n_fft 2048). The picture spans 30 dB of tone level
+      (<code>dynamic_db</code>), so ≥35 dB keeps the darkest pixels above the noise; 25–35 dB
+      gives a recognisable picture with crushed shadows; below 25 dB it breaks up.
+      Tones are played at the level they would have in a payload-only mix at peak 0.9.
+      The current file mix (<code>payload_gain 0.06</code>) is 23.5 dB quieter.</p>
+  </div>
+</main>
+
+<script id="dsp">
+// Pure DSP, no DOM: kept separate so it can be checked outside a browser.
+const SR = 48000, N = 2048, BIN = SR / N, AHOP = 1024;
+const BANDS = [];
+for (let f = 8000; f < 22000; f += 1000) BANDS.push([f, f + 1000]);
+const LEAD = 1.5, SEG = 1.0, GAP = 0.3;
+
+function combBins(lo, hi) {
+  const ks = [];
+  for (let k = Math.ceil(lo / BIN); k * BIN < hi; k += 2) ks.push(k);   // bin_spacing 2
+  return ks;
+}
+
+function lcg(seed) {
+  let s = seed >>> 0;
+  return () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296;
+}
+
+// Amplitude of one tone when ~150 of them (the real 15–22 kHz grid) peak at 0.9 together.
+function perToneAmp() {
+  const rnd = lcg(7), ks = combBins(15000, 22000), len = SR / 2;
+  const ph = ks.map(() => 2 * Math.PI * rnd());
+  let peak = 0;
+  for (let n = 0; n < len; n++) {
+    let s = 0;
+    for (let i = 0; i < ks.length; i++) s += Math.cos(2 * Math.PI * ks[i] * n / N + ph[i]);
+    peak = Math.max(peak, Math.abs(s));
+  }
+  return 0.9 / peak;
+}
+
+function testSignal() {
+  const a = perToneAmp(), rnd = lcg(11);
+  const total = Math.round((2 * LEAD + BANDS.length * (SEG + GAP)) * SR);
+  const x = new Float32Array(total), seg = Math.round(SEG * SR), fade = Math.round(0.01 * SR);
+  BANDS.forEach(([lo, hi], b) => {
+    const start = Math.round((LEAD + b * (SEG + GAP)) * SR);
+    for (const k of combBins(lo, hi)) {
+      const w = 2 * Math.PI * k / N, ph = 2 * Math.PI * rnd();
+      for (let n = 0; n < seg; n++) {
+        const g = Math.min(1, n / fade, (seg - 1 - n) / fade);
+        x[start + n] += a * g * Math.cos(w * n + ph);
+      }
+    }
+  });
+  return { x, amp: a };
+}
+
+function fft(re, im) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = -2 * Math.PI / len, wr = Math.cos(ang), wi = Math.sin(ang), h = len >> 1;
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let k = 0; k < h; k++) {
+        const a = i + k, b = a + h;
+        const xr = re[b] * cr - im[b] * ci, xi = re[b] * ci + im[b] * cr;
+        re[b] = re[a] - xr; im[b] = im[a] - xi; re[a] += xr; im[a] += xi;
+        const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t;
+      }
+    }
+  }
+}
+
+function stftPower(x) {
+  const win = new Float64Array(N);
+  for (let i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N);
+  const frames = [], re = new Float64Array(N), im = new Float64Array(N);
+  for (let s = 0; s + N <= x.length; s += AHOP) {
+    for (let i = 0; i < N; i++) { re[i] = x[s + i] * win[i]; im[i] = 0; }
+    fft(re, im);
+    const p = new Float32Array(N / 2 + 1);
+    for (let k = 0; k <= N / 2; k++) p[k] = re[k] * re[k] + im[k] * im[k];
+    frames.push(p);
+  }
+  return frames;
+}
+
+const db = v => 10 * Math.log10(Math.max(v, 1e-30));
+
+function analyse(x) {
+  const S = stftPower(x);
+  const w = Math.max(1, Math.round(0.5 * SR / AHOP));        // 0.5 s, inside one 1 s segment
+  const fullScale = (N / 4) ** 2;                              // Hann-windowed sine, amplitude 1
+  const bands = BANDS.map(([lo, hi]) => {
+    const ks = combBins(lo, hi);
+    const p = S.map(fr => { let s = 0; for (const k of ks) s += fr[k]; return s / ks.length; });
+    const sm = [];
+    for (let i = 0; i + w <= p.length; i++) {
+      let s = 0; for (let j = 0; j < w; j++) s += p[i + j]; sm.push(s / w);
+    }
+    const sorted = [...sm].sort((a, b) => a - b);
+    const sig = sorted[sorted.length - 1], noise = sorted[Math.floor(0.1 * sorted.length)];
+    return { lo, hi, snr: db(sig / noise), level: db(sig / fullScale) };
+  });
+  let best = null;
+  for (let s = 0; s + 7 <= bands.length; s++) {
+    const win = bands.slice(s, s + 7), min = Math.min(...win.map(b => b.snr));
+    if (!best || min > best.min) best = { lo: win[0].lo, hi: win[6].hi, min };
+  }
+  const cur = Math.min(...bands.filter(b => b.lo >= 15000).map(b => b.snr));
+  return { bands, best, current: cur, frames: S };
+}
+
+const grade = snr => snr >= 35 ? "good" : snr >= 25 ? "ok" : "bad";
+
+if (typeof module !== "undefined") module.exports = { testSignal, analyse, SR, BANDS, LEAD, SEG, GAP };
+</script>
+
+<script>
+const $ = id => document.getElementById(id);
+const secs = 2 * LEAD + BANDS.length * (SEG + GAP);
+$("dur").textContent = secs.toFixed(0);
+
+let test = null;
+const getTest = () => test || (test = testSignal());
+
+function wavBlob(x) {
+  const buf = new ArrayBuffer(44 + 2 * x.length), v = new DataView(buf);
+  const str = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  str(0, "RIFF"); v.setUint32(4, 36 + 2 * x.length, true); str(8, "WAVE"); str(12, "fmt ");
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, SR, true); v.setUint32(28, 2 * SR, true); v.setUint16(32, 2, true);
+  v.setUint16(34, 16, true); str(36, "data"); v.setUint32(40, 2 * x.length, true);
+  for (let i = 0; i < x.length; i++)
+    v.setInt16(44 + 2 * i, Math.max(-32768, Math.min(32767, Math.round(x[i] * 32767))), true);
+  return new Blob([buf], { type: "audio/wav" });
+}
+
+function download(blob, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+$("play").onclick = async () => {
+  const ctx = new AudioContext({ sampleRate: SR });
+  const { x } = getTest();
+  const b = ctx.createBuffer(1, x.length, SR);
+  b.copyToChannel(x, 0);
+  const src = ctx.createBufferSource();
+  src.buffer = b; src.connect(ctx.destination);
+  $("play").disabled = true;
+  src.onended = () => { $("play").disabled = false; ctx.close(); };
+  src.start();
+};
+$("dlTest").onclick = () => download(wavBlob(getTest().x), "hiddenhz-airtest.wav");
+
+// ---- live view
+const FMIN = 7000, FMAX = 23000;
+function heat(t) {                                  // 0..1 -> dark blue .. yellow
+  t = Math.max(0, Math.min(1, t));
+  return [Math.round(255 * Math.min(1, t * 1.6)),
+          Math.round(255 * Math.max(0, t * 1.4 - 0.3)),
+          Math.round(255 * Math.max(0, 0.55 - Math.abs(t - 0.25) * 1.8))];
+}
+
+let rec = null;
+$("rec").onclick = async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: {
+      echoCancellation: false, noiseSuppression: false, autoGainControl: false,
+      channelCount: 1, sampleRate: SR } });
+    const ctx = new AudioContext({ sampleRate: SR });
+    const src = ctx.createMediaStreamSource(stream);
+    const chunks = [];
+    const code = `registerProcessor("tap", class extends AudioWorkletProcessor {
+      process(i) { if (i[0][0]) this.port.postMessage(i[0][0].slice(0)); return true; } });`;
+    await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([code], { type: "text/javascript" })));
+    const tap = new AudioWorkletNode(ctx, "tap");
+    tap.port.onmessage = e => chunks.push(e.data);
+    const an = ctx.createAnalyser();
+    an.fftSize = N; an.smoothingTimeConstant = 0; an.minDecibels = -120; an.maxDecibels = -30;
+    src.connect(tap); src.connect(an);
+    const st = stream.getAudioTracks()[0].getSettings();
+    $("status").textContent = `Recording at ${ctx.sampleRate} Hz (device reports ` +
+      `${st.sampleRate || "?"} Hz). Echo cancel ${st.echoCancellation}, noise suppression ` +
+      `${st.noiseSuppression}, auto gain ${st.autoGainControl}.`;
+    const cv = $("live"), g = cv.getContext("2d"), bins = new Uint8Array(an.frequencyBinCount);
+    let raf;
+    const draw = () => {
+      an.getByteFrequencyData(bins);
+      g.drawImage(cv, -2, 0);
+      const col = g.createImageData(2, cv.height);
+      for (let y = 0; y < cv.height; y++) {
+        const f = FMAX - (FMAX - FMIN) * y / cv.height, c = heat(bins[Math.round(f / BIN)] / 255);
+        for (let x = 0; x < 2; x++) col.data.set([...c, 255], 4 * (y * 2 + x));
+      }
+      g.putImageData(col, cv.width - 2, 0);
+      raf = requestAnimationFrame(draw);
+    };
+    draw();
+    rec = { stream, ctx, chunks, stop: () => cancelAnimationFrame(raf) };
+    $("rec").disabled = true; $("stop").disabled = false;
+  } catch (err) {
+    $("status").textContent = "Could not start the microphone: " + err.message +
+      ". If you opened this as a file, try serving it: python -m http.server, then localhost.";
+  }
+};
+
+let lastRec = null;
+$("stop").onclick = () => {
+  rec.stop(); rec.stream.getTracks().forEach(t => t.stop()); rec.ctx.close();
+  const n = rec.chunks.reduce((s, c) => s + c.length, 0), x = new Float32Array(n);
+  let o = 0; for (const c of rec.chunks) { x.set(c, o); o += c.length; }
+  lastRec = x; rec = null;
+  $("rec").disabled = false; $("stop").disabled = true; $("dlRec").disabled = false;
+  show(x);
+};
+$("dlRec").onclick = () => lastRec && download(wavBlob(lastRec), "hiddenhz-airtest-recording.wav");
+
+$("file").onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  const ctx = new AudioContext({ sampleRate: SR });
+  const b = await ctx.decodeAudioData(await f.arrayBuffer());
+  ctx.close();
+  $("status").textContent = `Analysing ${f.name}.`;
+  show(b.getChannelData(0));
+};
+
+function show(x) {
+  if (x.length < SR * 3) { $("status").textContent = "Recording too short."; return; }
+  const r = analyse(x);
+  $("results").hidden = false;
+  const g = grade(r.current), gb = grade(r.best.min);
+  $("verdict").innerHTML =
+    `Current band 15–22 kHz: worst SNR <b class="${g}">${r.current.toFixed(1)} dB</b> — ` +
+    ({ good: "full quality over the air.", ok: "recognisable, shadows crushed.",
+       bad: "will not survive as it is." })[g] + "<br>" +
+    `Best 7 kHz window: <b class="${gb}">${r.best.lo / 1000}–${r.best.hi / 1000} kHz</b>, ` +
+    `worst SNR ${r.best.min.toFixed(1)} dB.`;
+  $("table").innerHTML = "<tr><th>band (kHz)</th><th>tone level (dBFS)</th><th>SNR (dB)</th>" +
+    "<th style='width:40%'></th></tr>" + r.bands.map(b =>
+      `<tr><td>${b.lo / 1000}–${b.hi / 1000}</td><td>${b.level.toFixed(1)}</td>` +
+      `<td class="${grade(b.snr)}">${b.snr.toFixed(1)}</td><td><div class="bar" ` +
+      `style="width:${Math.max(2, Math.min(100, b.snr * 2))}%;background:var(--${
+        grade(b.snr)})"></div></td></tr>`).join("");
+  // spectrogram of the whole recording
+  const cv = $("spec"), gc = cv.getContext("2d"), F = r.frames;
+  let mx = -Infinity;
+  for (const fr of F) for (let k = Math.floor(FMIN / BIN); k < FMAX / BIN; k++) mx = Math.max(mx, fr[k]);
+  const img = gc.createImageData(cv.width, cv.height), top = db(mx);
+  for (let xpx = 0; xpx < cv.width; xpx++) {
+    const fr = F[Math.floor(xpx * F.length / cv.width)];
+    for (let y = 0; y < cv.height; y++) {
+      const k = Math.round((FMAX - (FMAX - FMIN) * y / cv.height) / BIN);
+      const c = heat((db(fr[k]) - top + 70) / 70);
+      img.data.set([...c, 255], 4 * (y * cv.width + xpx));
+    }
+  }
+  gc.putImageData(img, 0, 0);
+}
+</script>
+</body>
+</html>
