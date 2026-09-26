@@ -106,7 +106,7 @@ function EncodePanel({ presets, onEncoded, onGoDecode }: {
     setErr(""); setPlateErr(""); setOut(null); setPlate(null); setPhase("encoding");
     try {
       const r = await encode(payload, password, carrier, detail, colour && !isFile, isFile);
-      const wav = new File([r.wav], "stego.wav", { type: "audio/wav" });
+      const wav = r.wav;
       setOut({ info: r.info, wav, carrier: !!carrier });
       setPhase("measuring");
       reveal(figRef.current, true);
@@ -280,7 +280,7 @@ function EncodePanel({ presets, onEncoded, onGoDecode }: {
 
 /* ------------------------------------------------------------------ decode */
 
-function DecodePanel({ input, setInput, presets }: {
+function DecodePanel({ input, setInput }: {
   input: Stego | null; setInput: (s: Stego | null) => void; presets: Presets | null;
 }) {
   const [password, setPassword] = useState("");
@@ -332,7 +332,6 @@ function DecodePanel({ input, setInput, presets }: {
     if (id === req.current) setBusy(false);
   };
 
-  const det = presets?.["48000/detail"];
   const figBand = plate?.info.band_hz ?? DEFAULT_BAND;
   const outIsFile = !!out?.info.is_file;
   const verdict: "ok" | "stop" | null = out

@@ -12,3 +12,4 @@ outputs/
 *.egg-info/
 .idea/
 .vscode/
+.vercel
