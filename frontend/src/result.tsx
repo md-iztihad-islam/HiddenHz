@@ -50,10 +50,14 @@ export function Result({ d, busy, attacked, onMark, compact }: {
   const png = useObjectUrl(d?.png ?? null);
   const fileUrl = useObjectUrl(d?.file ?? null);
   const i = d?.info;
-  const unscramble = !!(d && i && png && i.kind === "image" && i.password_ok && i.tones && !attacked);
-  const [phase, setPhase] = useState<"anim" | "done">("done");
+  // decided from the result itself, not from the picture URL (which appears one render later):
+  // otherwise the verdict would flash up before the unscramble starts
+  const unscramble = !!(d && i && d.png && i.kind === "image" && i.password_ok && i.tones && !attacked);
+  // the animation is finished only for the result it finished on: worked out during render,
+  // so the very first frame after a new result already shows "Unscrambling", not the verdict
+  const [doneFor, setDoneFor] = useState<Decoded | null>(null);
+  const phase: "anim" | "done" = unscramble && doneFor !== d ? "anim" : "done";
   const box = useRef<HTMLDivElement>(null);
-  useEffect(() => { setPhase(unscramble ? "anim" : "done"); }, [d, unscramble]);
   useEffect(() => {
     if (!d || !box.current) return;
     const r = box.current.getBoundingClientRect();
@@ -85,7 +89,7 @@ export function Result({ d, busy, attacked, onMark, compact }: {
       {i.kind === "image" && png && (phase === "anim" && i.tones
         ? <ScrambleStage picture={png} tones={i.tones} cols={i.cols ?? 1} rows={i.rows ?? 1}
             direction="unscramble" label="The password putting the picture back"
-            onDone={() => setPhase("done")} />
+            onDone={() => setDoneFor(d)} />
         : <Pixels src={png} cols={i.cols ?? 1} rows={i.rows ?? 1}
             alt={v.tone === "go" ? "The recovered picture" : "What came out"}
             effect={v.tone === "stop" && !i.password_ok ? "glitch" : "none"}
