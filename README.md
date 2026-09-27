@@ -1,35 +1,61 @@
 # HiddenHz
 
-Hide an image, or any small file, inside an ordinary-sounding audio file, above 15 kHz,
+Hide an image, a text message or a small file inside an ordinary-sounding audio file,
 behind a password.
 
-CSE 220 Signals and Linear Systems. Iztihad (encoder), Rayyan (decoder + API).
+CSE 220 Signals and Linear Systems. Iztihad (encoder), Rayyan (decoder, API and web app).
 
-Repo: [https://github.com/md-iztihad-islam/HiddenHz](https://github.com/md-iztihad-islam/HiddenHz)
+Live app: [hiddenhz-app.vercel.app](https://hiddenhz-app.vercel.app) ·
+Repo: [github.com/md-iztihad-islam/HiddenHz](https://github.com/md-iztihad-islam/HiddenHz)
 
-Work is split by **branch**, not by folder: `feat/encode` and `feat/decode`. The encoder and
-decoder import the same `config.py`, `dsp/` and `keying/`, so those must never be duplicated.
+Every transform in the codec runs on our own radix-2 FFT (`backend/app/dsp/`); the codec
+does not use `numpy.fft`, `scipy` or `librosa`.
 
-## What it hides
+## Two modes
+
+| mode | band | audible | survives | use it for |
+|---|---|---|---|---|
+| **Hidden** | 15–22 kHz, under a carrier such as rain | no | WAV and FLAC files | an inaudible payload in a file that is shared losslessly |
+| **Air** | 0.75–4.8 kHz | yes | speakers, microphones, voice-message codecs (Opus) | sending a payload through a phone call or a Telegram voice note |
+
+The decoder detects the mode itself and needs only the password.
+
+### Hidden mode
+
+The payload is drawn directly as the audio's spectrogram. Each image row is a steady tone
+on every second STFT bin between 15 and 22 kHz (150 rows at 48 kHz, N = 2048, hop = 512);
+brightness maps to tone level over a 30 dB range, and each image column is held for 8 frames.
+The password (PBKDF2-SHA256, 200,000 rounds) drives one generator that shuffles the rows
+inside every column, then the columns in time, and sets each tone's starting phase. The
+signal is synthesised with an inverse STFT and mixed into the carrier, whose content above
+14.5 kHz is removed first.
 
 | payload | how it is sent | cost at 48 kHz |
 |---|---|---|
-| grayscale image | brightness per grid cell | ~13 s for 150×150 |
-| colour image | brightness, three channels | ~19.5 s for 150×150 |
-| any file (PDF, ZIP, text…) | bits, Hamming(7,4) + CRC-32 | ~123 bytes per second |
+| greyscale image | tone level per grid cell | ~13 s for 150 × 150 |
+| colour image | YCbCr 4:2:0, chroma at half size | ~19.5 s for 150 × 150 |
+| file or text | bits, Hamming(7,4) + CRC-32 | ~125 bytes per second |
 
-A file has to come back byte for byte, so it is not sent as brightness. Each cell is either
-full level (1) or the floor (0). The bits are interleaved so that a fade across neighbouring
-rows turns into scattered single errors, and Hamming(7,4) corrects one flipped bit in every
-seven. A CRC-32 then tells the decoder whether every byte came back intact. The filename
-travels with the file. See `backend/app/pipeline/filecodec.py`.
+The **Detail** preset (N = 4096) gives 299 rows at four times the audio length. Files are
+capped at 10 minutes of audio (about 70 KB at 48 kHz). Share Hidden-mode audio as **WAV or
+FLAC only**: MP3, AAC, Opus and loudspeakers all remove the band above ~15 kHz.
 
-Files are capped at 10 minutes of audio: about 70 KB at 48 kHz, or about 50 KB with a
-44.1 kHz carrier (~88 bytes per second). The decoder needs only the password. It reads the
-preset (standard or detail) and the layout (grayscale, colour or file) from the audio itself.
+### Air mode
 
-Share the stego audio as **WAV or FLAC only**. MP3, AAC, Opus and playing it through a speaker
-all remove the band above ~15 kHz. An image then comes back as noise, and a file fails its CRC.
+Data is sent as 5 parallel channels of 8-FSK (32 ms symbols with a 10.7 ms echo guard),
+protected by a rate-½, K = 7 convolutional code with soft-decision Viterbi decoding and an
+interleaver. Start and end chirps give synchronisation and clock-drift correction; training
+symbols equalise the speaker, room and microphone. The packet is encrypted with a
+PBKDF2-derived keystream and carries a CRC-32, so the payload arrives exactly or is
+reported as damaged. Throughput is about 29 bytes per second; images are compressed to WebP
+under 900 bytes. See `backend/app/pipeline/air.py`.
+
+### Channel lab
+
+The app can attack a stego file and decode what survives: low-pass, high-pass and
+band-stop filters (255-tap windowed-sinc FIR, Hamming window), white noise at a chosen SNR,
+and clipping. Sweeps run one attack at several strengths. See
+`backend/app/pipeline/channel.py`.
 
 ## Quick start
 
@@ -37,18 +63,14 @@ all remove the band above ~15 kHz. An image then comes back as noise, and a file
 cd backend
 python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python -m pytest app/tests -q                         # 19 tests, all should pass
+python -m pytest app/tests -q                         # 28 tests
+uvicorn app.api.main:app --reload --port 8000         # API docs at /docs
 ```
 
-The tests are the specification: each one corresponds to a claim in `docs/PLAN.md`.
+`test_all.py` is the specification for the Hidden-mode codec: each test corresponds to a
+claim in `docs/PLAN.md`. `test_features.py` covers Air mode, text payloads and the lab.
 
-```bash
-python demo.py                 # grayscale, end to end
-python demo.py --colour        # colour
-uvicorn app.api.main:app --reload --port 8000    # API docs at /docs
-```
-
-Frontend (Vite + React, expects the API on port 8000):
+Frontend (Vite + React + Three.js, expects the API on port 8000):
 
 ```bash
 cd frontend
@@ -56,44 +78,46 @@ npm install
 npm run dev                    # http://localhost:5173
 ```
 
-### ffmpeg (optional, but needed for the recorder)
-
-Uploaded audio is converted to WAV on the server (`to_wav_bytes` in `audio_io.py`).
-WAV, FLAC, OGG and AIFF are read directly. MP3, M4A/AAC, Opus, and the WebM that the
-browser's **Record carrier** button produces go through ffmpeg. The backend looks for it in
-this order:
-
-1. the `FFMPEG_BINARY` environment variable
-2. `ffmpeg` on `PATH`
-3. the binary bundled with `pip install imageio-ffmpeg`
-
-Neither is in `requirements.txt`. Without ffmpeg, WAV and FLAC work, MP3 usually works through
-libsndfile, and microphone recordings are rejected with a 400 error.
-
-Converting a lossy file lets it be used as a **carrier**. It cannot recover a payload from a
-stego file that was already compressed.
+Uploaded audio is converted to WAV on the server. WAV, FLAC, OGG and AIFF are read
+directly; MP3, M4A/AAC, Opus and browser recordings (WebM) go through ffmpeg, which is
+provided by the `imageio-ffmpeg` package in `requirements.txt`. An `FFMPEG_BINARY`
+environment variable or an `ffmpeg` on `PATH` takes precedence.
 
 ## API
 
 | method | path | body | returns |
 |---|---|---|---|
-| GET | `/api/config` | | capacity of every preset |
-| POST | `/api/encode` | `password`, and one of `image` or `file`; optional `carrier`, `detail`, `colour`, `sample_rate`, `max_cols` | `info`, `wav_base64` |
-| POST | `/api/decode` | `audio`, `password`, optional `detail` (default `auto`) | `info` + `png_base64` for an image, or `info` + `file_base64` + `filename` for a file |
-| POST | `/api/spectrogram` | `audio` | spectrogram figure data |
+| GET | `/api/config` | | capacity of every preset, Air mode limits |
+| POST | `/api/encode` | `password`, `mode` (`hidden`/`air`), `kind` (`image`/`text`/`file`), one of `image`, `text` or `file`; optional `carrier`, `detail`, `colour` | `info`, `wav_base64` (or `wav_url` above 4.5 MB when hosted) |
+| POST | `/api/decode` | `audio`, `password` | `info` with verdict and mode, plus `png_base64`, `text` or `file_base64` |
+| POST | `/api/spectrogram` | `audio`, optional `mode` | spectrogram images and axis data |
+| POST | `/api/channel` | `audio`, `password`, `ops` (JSON: `lowpass`, `highpass`, `bandstop`, `noise`, `clip`) | attacked audio, decode result, spectrogram, band SNR |
+| POST | `/api/sweep` | `audio`, `password`, `kind` (`noise`/`lowpass`) | decode result at each strength |
 
-For files, `info.file_ok` reports the CRC result and `info.bytes` gives the size.
+A correct Hidden-mode decode also returns the password's tone map, which the web app uses to
+animate the unscrambling and to link each pixel to its tone.
+
+## Deployment
+
+The frontend and the API are deployed together on Vercel (`vercel.json`, `api/`). Requests
+and responses above 4.5 MB go through Vercel Blob storage (`api/blob-upload.js`,
+`backend/app/api/blobstore.py`).
 
 ## Layout
 
 ```
-docs/PLAN.md          the design, the derivations, and every measured number
-docs/reference/       a working implementation, for when you are stuck (read, do not copy)
-backend/app/          the code
-  config.py           every tunable number; encoder and decoder must agree
-  dsp/                our FFT, window, STFT/ISTFT
-  keying/             password -> permutations
-  pipeline/           encode, decode, image and audio I/O, filecodec (file payloads)
-  api/main.py         FastAPI app
-frontend/             React UI: encode (image or file, carrier upload or recording), decode
+docs/PLAN.md            the design, the derivations, and every measured number
+docs/reference/         a reference implementation of the Hidden-mode codec
+backend/app/
+  config.py             every tunable number; encoder and decoder must agree
+  dsp/                  radix-2 FFT (single and batched), Hann window, STFT/ISTFT
+  keying/               password -> permutations and phases
+  pipeline/             encode, decode, image and audio I/O, file codec, Air mode, channel lab
+  api/main.py           FastAPI app
+frontend/src/           web app: welcome page, encode, decode, lab, 2D/3D spectrum views
+api/                    Vercel entry points
+presentation/           slides, speaker script, demo files
 ```
+
+Image credit: the welcome-page photograph is "Foggy glass unsplash 5" from Wikimedia
+Commons, CC0 (see `frontend/src/assets/CREDITS.md`).

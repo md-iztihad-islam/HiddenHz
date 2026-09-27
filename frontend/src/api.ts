@@ -31,19 +31,6 @@ async function attach(f: FormData, field: string, file: Blob, name: string) {
   f.append(field + "_name", name);
 }
 
-async function binary(b64: string | undefined, url: string | undefined, mime: string,
-                      name: string) {
-  if (b64) return new File([b64ToBlob(b64, mime)], name, { type: mime });
-  if (!url) return null;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("Could not download the result.");
-  const file = new File([await res.arrayBuffer()], name, { type: mime });
-  blobUrls.set(file, url);               // sending it back to /api/spectrogram is free
-  return file;
-}
-
-const nameOf = (b: Blob, fallback: string) => b instanceof File ? b.name : fallback;
-
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
@@ -55,15 +42,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     const detail = json?.detail;
     throw new Error(typeof detail === "string"
-      ? detail
-      : `The backend answered ${res.status} ${res.statusText}.`);
+      ? detail[0].toUpperCase() + detail.slice(1)
+      : `The server answered ${res.status} ${res.statusText}.`);
   }
   return json as T;
 }
 
-function post<T>(path: string, form: FormData) {
-  return request<T>(path, { method: "POST", body: form });
-}
+const post = <T,>(path: string, form: FormData) =>
+  request<T>(path, { method: "POST", body: form });
 
 function b64ToBlob(b64: string, mime: string) {
   const bin = atob(b64);
@@ -72,77 +58,188 @@ function b64ToBlob(b64: string, mime: string) {
   return new Blob([bytes], { type: mime });
 }
 
-export type Preset = {
-  rows: number; bin_hz: number; band_hz: [number, number]; n_fft: number;
-  seconds_for_square_gray: number; seconds_for_square_colour: number;
-};
-/** Keyed "48000/standard", "44100/detail", ... */
-export type Presets = Record<string, Preset>;
+async function binary(b64: string | undefined, url: string | undefined, mime: string,
+                      name: string) {
+  if (b64) return new File([b64ToBlob(b64, mime)], name, { type: mime });
+  if (!url) return null;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Could not download the result.");
+  const file = new File([await res.arrayBuffer()], name, { type: mime });
+  blobUrls.set(file, url);               // sending it back to the API is free
+  return file;
+}
+
+/* ------------------------------------------------------------ types */
+
+export type Mode = "hidden" | "air";
+export type Kind = "image" | "text" | "file";
+export type Quality = "clean" | "damaged" | "none";
+
+export type Config = {
+  [preset: string]: {
+    rows: number; band_hz: [number, number]; n_fft: number;
+    seconds_for_square_gray: number; seconds_for_square_colour: number;
+  };
+} & { air: { band_hz: [number, number]; bytes_per_second: number; max_bytes: number;
+             image_bytes: number } };
 
 export type EncodeInfo = {
-  rows: number; cols: number; grid_cols: number; colour: boolean; frames: number;
-  duration_s: number; band_hz: [number, number]; sample_rate: number;
-  n_fft: number; detail: string; is_file: boolean;
+  mode: Mode; kind: Kind; duration_s: number; band_hz: [number, number];
+  sample_rate: number; rows?: number; cols?: number; grid_cols?: number; colour?: boolean;
   bytes?: number; filename?: string; note?: string;
+  tones?: ToneMap; notes?: AirNotes;
 };
+
+/** The tones Air mode actually sent, training first. */
+export type AirNotes = {
+  t0: number; dt: number; train: number; channels: number; tones: number;
+  hz: number[][][]; symbols: number[];
+};
+
 export type DecodeInfo = {
-  rows: number; cols?: number; colour: boolean; confidence: number;
-  password_ok: boolean; detail: string;
-  is_file: boolean; filename?: string; bytes?: number; file_ok?: boolean;
+  mode?: Mode; kind: Kind | "none"; quality: Quality; password_ok: boolean;
+  confidence?: number; rows?: number; cols?: number; colour?: boolean;
+  filename?: string; bytes?: number; file_ok?: boolean; reason?: string;
+  channel_ber?: number; clock_ppm?: number;
+  tones?: ToneMap | null;
 };
+
+/** Where each recovered pixel was sent (Hidden mode, right password only). */
+export type ToneMap = {
+  rows: string; slots: number[]; bin_lo: number; spacing: number; bin_hz: number;
+  pad: number; reps: number; hop: number; sample_rate: number;
+};
+
+export type Mark = { f: number; t: number };
+
+const toneRows = new WeakMap<ToneMap, Uint16Array>();
+
+export function toneOf(m: ToneMap, cols: number, r: number, c: number): Mark {
+  let idx = toneRows.get(m);
+  if (!idx) {
+    const bytes = Uint8Array.from(atob(m.rows), (ch) => ch.charCodeAt(0));
+    idx = new Uint16Array(bytes.buffer);
+    toneRows.set(m, idx);
+  }
+  return {
+    f: (m.bin_lo + m.spacing * idx[r * cols + c]) * m.bin_hz,
+    t: ((m.pad + m.slots[c] * m.reps + m.reps / 2) * m.hop) / m.sample_rate,
+  };
+}
+
+export type Decoded = {
+  info: DecodeInfo; png: Blob | null; text: string | null; file: File | null;
+};
+
 export type SpectrogramInfo = {
   sample_rate: number; n_fft: number; hop: number; bins: number; frames: number;
   duration_s: number; range_db: number; band_hz: [number, number] | null;
-  /** Inclusive bin range of bandPng; null when the rate is not 44.1 or 48 kHz. */
   band_bins: [number, number] | null; band_range_db: number;
 };
-/** png: the whole spectrum. bandPng: the hidden band, rescaled to its own peak. */
-export type Plate = { info: SpectrogramInfo; png: Blob; bandPng: Blob | null };
+/** png: the whole spectrum. bandPng: the payload band, rescaled to its own peak. */
+export type Plate = { info: SpectrogramInfo; png: Blob; bandPng: Blob | null; mode: Mode };
 
-export function getConfig() {
-  return request<Presets>("/api/config");
+export type ChannelOps = {
+  lowpass?: number; highpass?: number; bandstop?: [number, number];
+  noise?: number; clip?: number;
+};
+
+/* ------------------------------------------------------------ calls */
+
+export const getConfig = () => request<Config>("/api/config");
+
+type RawDecoded = {
+  info: DecodeInfo; png_base64?: string; text?: string;
+  file_base64?: string; file_url?: string; filename?: string;
+};
+
+async function decoded(r: RawDecoded): Promise<Decoded> {
+  return {
+    info: r.info,
+    png: r.png_base64 ? b64ToBlob(r.png_base64, "image/png") : null,
+    text: r.text ?? null,
+    file: await binary(r.file_base64, r.file_url, "application/octet-stream",
+                       r.filename ?? "recovered.bin"),
+  };
 }
 
-export async function encode(payload: File, password: string, carrier: File | null,
-                             detail: string, colour: boolean,
-                             isFile: boolean) {
+type RawPlate = {
+  info: SpectrogramInfo; png_base64: string; band_png_base64: string | null; mode?: Mode;
+};
+
+const plateOf = (r: RawPlate, mode: Mode): Plate => ({
+  info: r.info,
+  png: b64ToBlob(r.png_base64, "image/png"),
+  bandPng: r.band_png_base64 ? b64ToBlob(r.band_png_base64, "image/png") : null,
+  mode: r.mode ?? mode,
+});
+
+export async function encode(opts: {
+  mode: Mode; kind: Kind; password: string; colour: boolean; detail?: "standard" | "detail";
+  image?: File | null; file?: File | null; text?: string; carrier?: File | null;
+}) {
   const f = new FormData();
-  await attach(f, isFile ? "file" : "image", payload, payload.name);
-  f.append("password", password);
-  f.append("detail", detail);
-  f.append("colour", String(colour));
+  f.append("mode", opts.mode);
+  f.append("kind", opts.kind);
+  f.append("password", opts.password);
+  f.append("colour", String(opts.colour));
   f.append("max_cols", "400");
-  if (carrier) await attach(f, "carrier", carrier, carrier.name);
+  f.append("detail", opts.mode === "hidden" ? opts.detail ?? "standard" : "standard");
+  if (opts.kind === "text") f.append("text", opts.text ?? "");
+  if (opts.kind === "image" && opts.image) await attach(f, "image", opts.image, opts.image.name);
+  if (opts.kind === "file" && opts.file) await attach(f, "file", opts.file, opts.file.name);
+  if (opts.mode === "hidden" && opts.carrier)
+    await attach(f, "carrier", opts.carrier, opts.carrier.name);
   const r = await post<{ info: EncodeInfo; wav_base64?: string; wav_url?: string }>(
     "/api/encode", f);
-  return { info: r.info, wav: (await binary(r.wav_base64, r.wav_url, "audio/wav", "stego.wav"))! };
+  const name = opts.mode === "air" ? "hiddenhz-air.wav" : "hiddenhz.wav";
+  return { info: r.info, wav: (await binary(r.wav_base64, r.wav_url, "audio/wav", name))! };
 }
 
 export async function decode(audio: File, password: string) {
   const f = new FormData();
   await attach(f, "audio", audio, audio.name);
   f.append("password", password);
-  f.append("detail", "auto");
-  const r = await post<{ info: DecodeInfo; png_base64?: string; file_base64?: string;
-                         file_url?: string; filename?: string }>("/api/decode", f);
-  return {
-    info: r.info,
-    png: r.png_base64 ? b64ToBlob(r.png_base64, "image/png") : null,
-    file: await binary(r.file_base64, r.file_url, "application/octet-stream",
-                       r.filename ?? "file"),
-    filename: r.filename,
-  };
+  return decoded(await post<RawDecoded>("/api/decode", f));
 }
 
-/** Rendered by the backend with the codec's own STFT, so the figure is our FFT. */
-export async function spectrogram(audio: Blob): Promise<Plate> {
+/** Rendered by the backend with our own FFT, so the figure is the codec's transform. */
+export async function spectrogram(audio: File, mode?: Mode): Promise<Plate> {
   const f = new FormData();
-  await attach(f, "audio", audio, nameOf(audio, "audio.wav"));
-  const r = await post<{ info: SpectrogramInfo; png_base64: string;
-                         band_png_base64: string | null }>("/api/spectrogram", f);
+  await attach(f, "audio", audio, audio.name);
+  if (mode) f.append("mode", mode);
+  return plateOf(await post<RawPlate>("/api/spectrogram", f), mode ?? "hidden");
+}
+
+export type SweepStep = { label: string; band_snr_db?: number; result: Decoded };
+
+export async function sweep(audio: File, password: string, kind: "noise" | "lowpass") {
+  const f = new FormData();
+  await attach(f, "audio", audio, audio.name);
+  f.append("password", password);
+  f.append("kind", kind);
+  const r = await post<{ mode: Mode; steps: (RawDecoded & { label: string; band_snr_db?: number })[] }>(
+    "/api/sweep", f);
+  const steps: SweepStep[] = [];
+  for (const s of r.steps) steps.push({ label: s.label, band_snr_db: s.band_snr_db, result: await decoded(s) });
+  return { mode: r.mode, steps };
+}
+
+export async function channel(audio: File, password: string, ops: ChannelOps) {
+  const f = new FormData();
+  await attach(f, "audio", audio, audio.name);
+  f.append("password", password);
+  f.append("ops", JSON.stringify(ops));
+  const r = await post<{
+    steps: string[]; result: RawDecoded; plate: RawPlate; band_snr_db: number | null;
+    wav_base64?: string; wav_url?: string;
+  }>("/api/channel", f);
+  const mode = r.result.info.mode ?? "hidden";
   return {
-    info: r.info,
-    png: b64ToBlob(r.png_base64, "image/png"),
-    bandPng: r.band_png_base64 ? b64ToBlob(r.band_png_base64, "image/png") : null,
+    steps: r.steps,
+    bandSnr: r.band_snr_db,
+    result: await decoded(r.result),
+    plate: plateOf(r.plate, mode),
+    wav: (await binary(r.wav_base64, r.wav_url, "audio/wav", "after-channel.wav"))!,
   };
 }

@@ -1,15 +1,19 @@
 """Stego WAV + password -> picture, or a hidden file."""
+import base64
 import io
 
 import numpy as np
 import soundfile as sf
 
 from ..config import CFG, Config, config_for
-from ..dsp.stft import stft
+from ..dsp.batchfft import stft_rows   # same numbers as dsp.stft.stft, all frames at once
 from ..keying.keyschedule import key_schedule, unscramble
 from .audio_io import read_wav
 from .image_io import HEADER_COLS, read_header, to_pixels, to_png, unpack_colour
-from .filecodec import decode_file, is_file_marker
+from .filecodec import TEXT_NAME, decode_file, is_file_marker
+
+CLEAN = 0.6      # measured: right password, untouched file 0.95; 20 dB of noise 0.80;
+                 # band-stop 17-19 kHz 0.37; wrong password never above 0.17
 
 
 def confidence(grid: np.ndarray) -> float:
@@ -26,7 +30,7 @@ def confidence(grid: np.ndarray) -> float:
 def _decode_with(wav_bytes: bytes, password: str, cfg: Config, threshold: float):
     x = read_wav(wav_bytes, cfg.sample_rate)
     bins = cfg.bins()
-    S = stft(x, cfg.n_fft, cfg.hop)
+    S = stft_rows(x, cfg.n_fft, cfg.hop)
 
     usable = S.shape[1] - 2 * cfg.pad_frames      # skip the silent lead-in and lead-out
     grid_cols = usable // cfg.reps
@@ -51,11 +55,15 @@ def _decode_with(wav_bytes: bytes, password: str, cfg: Config, threshold: float)
         # the CRC then says whether every byte survived.
         name, data, magic_ok, crc_ok = decode_file(pixels[:, HEADER_COLS:])
         if magic_ok:
-            return data, {
+            meta = {
                 "rows": cfg.rows, "cols": 0, "colour": False, "is_file": True,
                 "filename": name or "recovered.bin", "bytes": len(data),
                 "file_ok": crc_ok, "confidence": 1.0, "password_ok": True,
+                "kind": "file", "quality": "clean" if crc_ok else "damaged",
             }
+            if name == TEXT_NAME:
+                meta.update(kind="text", filename="message.txt")
+            return data, meta
         # no magic: wrong password (the marker was just noise); fall through to the
         # picture path, which renders that noise and reports a low confidence
 
@@ -72,10 +80,31 @@ def _decode_with(wav_bytes: bytes, password: str, cfg: Config, threshold: float)
         picture = content
         score = confidence(picture)
 
+    meta_tones = _tone_map(row_perms, col_perm, picture_cols, cfg) if score >= threshold else None
     return to_png(picture), {
+        "tones": meta_tones,
         "rows": cfg.rows, "cols": picture_cols, "colour": colour,
         "confidence": round(score, 4),
-        "password_ok": bool(score >= threshold), "is_file": False,
+        "password_ok": bool(score >= threshold), "is_file": False, "kind": "image",
+        "quality": "clean" if score >= CLEAN else "damaged" if score >= threshold else "none",
+    }
+
+
+def _tone_map(row_perms: np.ndarray, col_perm: np.ndarray, picture_cols: int, cfg: Config):
+    """
+    Where each picture pixel was sent, for the UI's pixel-to-tone hover. Only returned
+    after the right password, which is what these permutations come from anyway.
+    Pixel (r, c) lives in grid column g = HEADER_COLS + c; scramble() moved it to tone row
+    i with row_perms[g][i] = r, and to time slot j with col_perm[j] = g.
+    """
+    g = HEADER_COLS + np.arange(picture_cols)
+    inv_rows = np.argsort(np.asarray(row_perms)[g], axis=1)   # (cols, rows): r -> i
+    slot = np.argsort(np.asarray(col_perm))[g]                 # g -> j
+    return {
+        "rows": base64.b64encode(inv_rows.T.astype(np.uint16).tobytes()).decode(),
+        "slots": slot.tolist(), "bin_lo": int(cfg.bin_lo), "spacing": cfg.bin_spacing,
+        "bin_hz": cfg.bin_hz, "pad": cfg.pad_frames, "reps": cfg.reps, "hop": cfg.hop,
+        "sample_rate": cfg.sample_rate,
     }
 
 

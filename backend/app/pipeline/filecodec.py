@@ -34,6 +34,7 @@ MAGIC = b"HZF1"
 VERSION = 1
 MAX_NAME = 255
 MARKER_THRESHOLD = 0.75          # colour markers sit near 1.0; anything below may be a file
+TEXT_NAME = ":text"              # a typed message; ":" cannot appear in a real filename
 
 
 # ---------------------------------------------------------------- container

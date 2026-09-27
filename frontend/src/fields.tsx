@@ -1,18 +1,5 @@
-import {
-  useCallback, useEffect, useId, useRef, useState, type ReactNode,
-} from "react";
-
-/** An object URL that is revoked when the blob changes or the component goes away. */
-export function useObjectUrl(blob: Blob | null) {
-  const [url, setUrl] = useState<string | null>(null);
-  useEffect(() => {
-    if (!blob) { setUrl(null); return; }
-    const u = URL.createObjectURL(blob);
-    setUrl(u);
-    return () => URL.revokeObjectURL(u);
-  }, [blob]);
-  return url;
-}
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { LiveRoll, useObjectUrl } from "./media";
 
 export function formatBytes(n: number) {
   if (n < 1024) return `${n} B`;
@@ -20,140 +7,106 @@ export function formatBytes(n: number) {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function SlotGlyph({ kind }: { kind: "image" | "audio" | "file" }) {
-  if (kind === "image") {
-    return (
-      <svg className="slot-glyph" viewBox="0 0 40 40" aria-hidden="true">
-        <rect x="4" y="7" width="32" height="26" rx="2" fill="none" stroke="currentColor" strokeWidth="2" />
-        <path d="M8 29l8-9 6 6 4-4 6 7" fill="none" stroke="currentColor" strokeWidth="2"
-          strokeLinejoin="round" />
-        <circle cx="27" cy="14" r="2.5" fill="currentColor" />
-      </svg>
-    );
-  }
-  if (kind === "file") {
-    return (
-      <svg className="slot-glyph" viewBox="0 0 40 40" aria-hidden="true">
-        <path d="M10 4h14l8 8v24a0 0 0 0 1 0 0H10a0 0 0 0 1 0 0V4z" fill="none"
-          stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-        <path d="M24 4v8h8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-        <path d="M15 22h10M15 27h10M15 17h5" stroke="currentColor" strokeWidth="2"
-          strokeLinecap="round" />
-      </svg>
-    );
-  }
+/* ------------------------------------------------------------ glyphs, one stroke */
+
+export function Glyph({ name }: { name: "image" | "audio" | "file" | "text" | "mic" | "down" | "flask" | "key" }) {
+  const p = { fill: "none", stroke: "currentColor", strokeWidth: 1.8,
+              strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   return (
-    <svg className="slot-glyph" viewBox="0 0 40 40" aria-hidden="true">
-      <path d="M6 20h2M11 14v12M15 9v22M19 15v10M23 11v18M27 16v8M31 19v2M34 20h1"
-        stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" fill="none" />
+    <svg className="glyph" viewBox="0 0 24 24" aria-hidden="true">
+      {name === "image" && <><rect x="3.5" y="5" width="17" height="14" rx="2" {...p} />
+        <path d="M6.5 16l4-4.5 3 3 2-2 2.5 3.5" {...p} /><circle cx="15.5" cy="9" r="1.4" {...p} /></>}
+      {name === "audio" && <path d="M3 12h1.5M7 8v8M10.5 5v14M14 9v6M17.5 7v10M21 11v2" {...p} />}
+      {name === "file" && <><path d="M7 3.5h7l4 4v13H7z" {...p} /><path d="M14 3.5v4h4M10 12h5M10 15.5h5" {...p} /></>}
+      {name === "text" && <path d="M5 6.5h14M5 11h14M5 15.5h9" {...p} />}
+      {name === "mic" && <><rect x="9" y="3.5" width="6" height="11" rx="3" {...p} />
+        <path d="M6 11.5a6 6 0 0 0 12 0M12 17.5v3" {...p} /></>}
+      {name === "down" && <path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14" {...p} />}
+      {name === "flask" && <path d="M9.5 3.5h5M10.5 3.5v5.5l-5 9a1.5 1.5 0 0 0 1.3 2.2h10.4a1.5 1.5 0 0 0 1.3-2.2l-5-9V3.5M8 14.5h8" {...p} />}
+      {name === "key" && <><circle cx="8" cy="12" r="3.5" {...p} /><path d="M11.5 12H20M17 12v3M20 12v2" {...p} /></>}
     </svg>
   );
 }
 
-export function FilePicker({ label, optional, hint, accept, file, onPick, kind, note,
-  emptyMeta }: {
-  label: string; optional?: boolean; hint?: ReactNode; accept: string; file: File | null;
-  onPick: (f: File | null) => void; kind: "image" | "audio" | "file"; note?: string;
-  emptyMeta?: string;
+/* ------------------------------------------------------------ drop well */
+
+export function DropWell({ label, accept, file, onPick, kind, hint }: {
+  label: string; accept: string; file: File | null; onPick: (f: File | null) => void;
+  kind: "image" | "audio" | "file"; hint?: string;
 }) {
   const id = useId();
   const [over, setOver] = useState(false);
   const thumb = useObjectUrl(kind === "image" ? file : null);
   return (
-    <div className="field">
-      <div className="field-head">
-        <span className="legend" id={id + "l"}>{label}</span>
-        {optional && <span className="legend legend--quiet">Optional</span>}
-      </div>
-      <label
-        className={"slot" + (over ? " is-over" : "") + (file ? " has-file" : "")}
-        onDragOver={(e) => { e.preventDefault(); setOver(true); }}
-        onDragLeave={() => setOver(false)}
-        onDrop={(e) => {
-          e.preventDefault(); setOver(false);
-          const f = e.dataTransfer.files[0];
-          if (f) onPick(f);
-        }}>
-        <input className="sr-only" type="file" accept={accept} aria-labelledby={id + "l"}
-          aria-describedby={hint ? id + "h" : undefined}
-          onChange={(e) => { onPick(e.target.files?.[0] ?? null); e.target.value = ""; }} />
-        {file && thumb ? <img className="slot-thumb" src={thumb} alt="" /> : <SlotGlyph kind={kind} />}
-        <span className="slot-text">
-          <span className="slot-name">{file ? file.name : "Drop a file here"}</span>
-          <span className="slot-meta">
-            {file
-              ? `${formatBytes(file.size)}${note ? ` · ${note}` : ""}`
-              : emptyMeta ?? (kind === "image" ? "BMP, PNG or JPEG"
-                  : kind === "file" ? "PDF, ZIP, TXT — any small file" : "WAV or FLAC")}
-          </span>
-        </span>
-        <span className="slot-key">{file ? "Replace" : "Choose"}</span>
-      </label>
-      {hint && <p className="hint" id={id + "h"}>{hint}</p>}
-    </div>
-  );
-}
-
-export function PasswordField({ value, onChange, min }: {
-  value: string; onChange: (v: string) => void; min?: number;
-}) {
-  const id = useId();
-  const [show, setShow] = useState(false);
-  const short = min !== undefined && value.length > 0 && value.length < min;
-  const left = min !== undefined ? min - value.length : 0;
-  return (
-    <div className="field">
-      <div className="field-head">
-        <label className="legend" htmlFor={id}>Password</label>
-      </div>
-      <div className={"pw" + (short ? " is-bad" : "")}>
-        <input id={id} type={show ? "text" : "password"} value={value}
-          autoComplete="off" spellCheck={false} aria-invalid={short}
-          aria-describedby={id + "h"} onChange={(e) => onChange(e.target.value)} />
-        <button type="button" className="key key--small" aria-pressed={show}
-          onClick={() => setShow(!show)}>{show ? "Hide" : "Show"}</button>
-      </div>
-      <p className={"hint" + (short ? " hint--bad" : "")} id={id + "h"}>
-        {min !== undefined
-          ? (short ? `${left} more character${left > 1 ? "s" : ""} needed.`
-                   : `At least ${min} characters. The same password decodes it.`)
-          : "The password used when the file was made."}
-      </p>
-    </div>
-  );
-}
-
-export function Switch({ label, checked, onChange }: {
-  label: string; checked: boolean; onChange: (v: boolean) => void;
-}) {
-  return (
-    <label className="switch">
-      <span className="legend">{label}</span>
-      <span className="switch-row">
-        <input type="checkbox" role="switch" className="sr-only" checked={checked}
-          onChange={(e) => onChange(e.target.checked)} />
-        <span className="switch-track" aria-hidden="true"><span className="switch-thumb" /></span>
-        <span className="switch-state" aria-hidden="true">{checked ? "On" : "Off"}</span>
+    <label className={"well" + (over ? " is-over" : "") + (file ? " has-file" : "")}
+      onDragOver={(e) => { e.preventDefault(); setOver(true); }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => {
+        e.preventDefault(); setOver(false);
+        const f = e.dataTransfer.files[0];
+        if (f) onPick(f);
+      }}>
+      <input className="sr-only" type="file" accept={accept} aria-label={label}
+        onChange={(e) => { onPick(e.target.files?.[0] ?? null); e.target.value = ""; }} />
+      {file && thumb ? <img className="well-thumb" src={thumb} alt="" /> : <Glyph name={kind} />}
+      <span className="well-text">
+        <span className="well-name">{file ? file.name : label}</span>
+        <span className="well-meta">{file ? formatBytes(file.size) : hint}</span>
       </span>
+      {file && (
+        <button type="button" className="well-clear" aria-label={"Remove " + file.name}
+          onClick={(e) => { e.preventDefault(); onPick(null); }}>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg>
+        </button>
+      )}
+      <span className="sr-only" id={id}>{hint}</span>
     </label>
   );
 }
 
-export function Segmented<T extends string>({ label, value, onChange, options }: {
-  label: string; value: T; onChange: (v: T) => void;
-  options: { value: T; label: string; sub?: string }[];
+/* ------------------------------------------------------------ password */
+
+export function Password({ value, onChange, min = 4 }: {
+  value: string; onChange: (v: string) => void; min?: number;
+}) {
+  const id = useId();
+  const [show, setShow] = useState(false);
+  const short = value.length > 0 && value.length < min;
+  return (
+    <div className={"password" + (short ? " is-short" : "")}>
+      <label htmlFor={id} className="legend">Password</label>
+      <div className="password-row">
+        <Glyph name="key" />
+        <input id={id} type={show ? "text" : "password"} value={value} autoComplete="off"
+          spellCheck={false} aria-invalid={short} placeholder="at least 4 characters"
+          onChange={(e) => onChange(e.target.value)} />
+        <button type="button" className="text-key" aria-pressed={show}
+          onClick={() => setShow(!show)}>{show ? "Hide" : "Show"}</button>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------ slot switch */
+
+/** Two to four options as a row of punched slots; the chosen one is punched through. */
+export function Slots<T extends string>({ label, value, onChange, options, tone }: {
+  label: string; value: T; onChange: (v: T) => void; tone?: "hidden" | "air";
+  options: { value: T; label: string; sub?: string; tone?: "hidden" | "air" }[];
 }) {
   const name = useId();
   return (
-    <fieldset className="segmented">
+    <fieldset className={"slots" + (tone ? " slots--" + tone : "")}>
       <legend className="legend">{label}</legend>
-      <div className="seg-group">
+      <div className="slots-row">
         {options.map((o) => (
-          <label key={o.value} className="seg-opt">
+          <label key={o.value} className={"slot" + (o.tone ? " slot--" + o.tone : "")}>
             <input type="radio" className="sr-only" name={name} value={o.value}
               checked={value === o.value} onChange={() => onChange(o.value)} />
-            <b>{o.label}</b>
-            {o.sub && <span>{o.sub}</span>}
+            <span className="slot-face">
+              <b>{o.label}</b>
+              {o.sub && <small>{o.sub}</small>}
+            </span>
           </label>
         ))}
       </div>
@@ -161,103 +114,80 @@ export function Segmented<T extends string>({ label, value, onChange, options }:
   );
 }
 
+export function Toggle({ label, checked, onChange }: {
+  label: string; checked: boolean; onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className="toggle">
+      <input type="checkbox" role="switch" className="sr-only" checked={checked}
+        onChange={(e) => onChange(e.target.checked)} />
+      <span className="toggle-track" aria-hidden="true"><span /></span>
+      <span>{label}</span>
+    </label>
+  );
+}
+
 export function Alert({ children }: { children: ReactNode }) {
   return <div className="alert" role="alert">{children}</div>;
 }
 
-/* ------------------------------------------------------------ microphone capture */
+/* ------------------------------------------------------------ microphone */
 
-// Preference order for the recording container. Whatever the browser gives us, the
-// backend transcodes to WAV, so we just take the first type it will record.
 const MIME_CANDIDATES = [
-  "audio/webm;codecs=opus", "audio/webm",
-  "audio/ogg;codecs=opus", "audio/ogg",
+  "audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/ogg",
   "audio/mp4", "audio/aac",
 ];
-const MAX_SECONDS = 300;    // a soft cap so a forgotten recording cannot run forever
+const MAX_SECONDS = 180;
 
-function pickMime(): string | undefined {
-  if (typeof MediaRecorder === "undefined" || !MediaRecorder.isTypeSupported) return undefined;
-  return MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m));
-}
+const pickMime = () =>
+  typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported
+    ? MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m)) : undefined;
 
-function extFor(mime: string): string {
-  if (mime.includes("webm")) return "webm";
-  if (mime.includes("ogg")) return "ogg";
-  if (mime.includes("mp4")) return "m4a";
-  if (mime.includes("aac")) return "aac";
-  return "dat";
-}
+const extFor = (mime: string) =>
+  mime.includes("webm") ? "webm" : mime.includes("ogg") ? "ogg"
+    : mime.includes("mp4") ? "m4a" : mime.includes("aac") ? "aac" : "dat";
 
-const canRecord = () =>
+export const canRecord = () =>
   typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia &&
   typeof MediaRecorder !== "undefined";
 
 function clock(sec: number) {
-  const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
-  return `${m}:${String(s).padStart(2, "0")}`;
+  return `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
 }
 
 /**
- * Record from the microphone and hand the result back as a File. The container is
- * whatever the browser supports (usually WebM/Opus); the backend converts it to WAV.
- * Meant for carriers - your voice, rain, room tone - not for stego files, which lose
- * their hidden band the moment they leave a speaker.
+ * Record from the microphone and hand back a File, drawing a live roll while it listens.
+ * The browser's echo cancelling, noise suppression and gain riding are switched off: they
+ * treat Air mode's steady tones as noise and carve them out.
  */
-export function AudioRecorder({ onRecorded, disabled }: {
-  onRecorded: (f: File) => void; disabled?: boolean;
+export function Recorder({ onRecorded, disabled, label, live = true, onLive }: {
+  onRecorded: (f: File) => void; disabled?: boolean; label: string; live?: boolean;
+  /** Lift the analyser out, so the live roll can be drawn somewhere bigger. */
+  onLive?: (analyser: AnalyserNode | null, sampleRate: number) => void;
 }) {
   const [supported] = useState(canRecord);
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [err, setErr] = useState("");
+  const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
+  const [rate, setRate] = useState(48000);
 
   const recRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const tickRef = useRef<number | null>(null);
-  const startRef = useRef(0);
-  // level meter, driven straight to the DOM so it never re-renders the component
+  const chunks = useRef<Blob[]>([]);
+  const tick = useRef<number | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const meterRef = useRef<HTMLSpanElement | null>(null);
 
   const teardown = useCallback(() => {
-    if (tickRef.current !== null) { clearInterval(tickRef.current); tickRef.current = null; }
-    if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+    if (tick.current !== null) { clearInterval(tick.current); tick.current = null; }
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     ctxRef.current?.close().catch(() => {});
     ctxRef.current = null;
-    if (meterRef.current) meterRef.current.style.transform = "scaleX(0)";
-  }, []);
-
-  // stop everything if the component unmounts mid-recording
+    setAnalyser(null);
+    onLive?.(null, 48000);
+  }, [onLive]);
   useEffect(() => teardown, [teardown]);
-
-  const startMeter = (stream: MediaStream) => {
-    try {
-      const Ctx = window.AudioContext ?? (window as unknown as
-        { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const ctx = new Ctx();
-      ctxRef.current = ctx;
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 512;
-      ctx.createMediaStreamSource(stream).connect(analyser);
-      const buf = new Uint8Array(analyser.fftSize);
-      const draw = () => {
-        analyser.getByteTimeDomainData(buf);
-        let sum = 0;
-        for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v; }
-        const level = Math.min(1, Math.sqrt(sum / buf.length) * 2.2);
-        if (meterRef.current) meterRef.current.style.transform = `scaleX(${level.toFixed(3)})`;
-        rafRef.current = requestAnimationFrame(draw);
-      };
-      draw();
-    } catch {
-      // a level meter is decoration; recording still works without it
-    }
-  };
 
   const stop = useCallback(() => {
     const rec = recRef.current;
@@ -268,30 +198,42 @@ export function AudioRecorder({ onRecorded, disabled }: {
     setErr("");
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: {
+        echoCancellation: false, noiseSuppression: false, autoGainControl: false,
+        channelCount: 1 } });
     } catch (e) {
       const name = (e as DOMException)?.name;
       setErr(name === "NotAllowedError" || name === "SecurityError"
-        ? "Microphone access was blocked. Allow it in your browser and try again."
-        : name === "NotFoundError"
-          ? "No microphone was found."
-          : "Could not start recording: " + ((e as Error).message || "unknown error"));
+        ? "Microphone blocked. Allow it in the browser and try again."
+        : name === "NotFoundError" ? "No microphone found."
+        : "Could not start recording.");
       return;
     }
     streamRef.current = stream;
+    if (live) {
+      try {
+        const ctx = new AudioContext();
+        ctxRef.current = ctx;
+        const an = ctx.createAnalyser();
+        an.fftSize = 2048;
+        an.smoothingTimeConstant = 0;
+        an.minDecibels = -100; an.maxDecibels = -20;
+        ctx.createMediaStreamSource(stream).connect(an);
+        setRate(ctx.sampleRate);
+        setAnalyser(an);
+        onLive?.(an, ctx.sampleRate);
+      } catch { /* the live roll is display only */ }
+    }
     const mime = pickMime();
     let rec: MediaRecorder;
-    try {
-      rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-    } catch {
-      rec = new MediaRecorder(stream);
-    }
+    try { rec = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 128000 } : undefined); }
+    catch { rec = new MediaRecorder(stream); }
     recRef.current = rec;
-    chunksRef.current = [];
-    rec.ondataavailable = (e) => { if (e.data.size) chunksRef.current.push(e.data); };
+    chunks.current = [];
+    rec.ondataavailable = (e) => { if (e.data.size) chunks.current.push(e.data); };
     rec.onstop = () => {
       const type = rec.mimeType || mime || "audio/webm";
-      const blob = new Blob(chunksRef.current, { type });
+      const blob = new Blob(chunks.current, { type });
       teardown();
       setRecording(false);
       if (blob.size > 0) {
@@ -299,47 +241,30 @@ export function AudioRecorder({ onRecorded, disabled }: {
         onRecorded(new File([blob], `recording-${stamp}.${extFor(type)}`, { type }));
       }
     };
-
-    startRef.current = Date.now();
+    const t0 = Date.now();
     setElapsed(0);
-    tickRef.current = window.setInterval(() => {
-      const s = (Date.now() - startRef.current) / 1000;
+    tick.current = window.setInterval(() => {
+      const s = (Date.now() - t0) / 1000;
       setElapsed(s);
       if (s >= MAX_SECONDS) stop();
     }, 200);
-    startMeter(stream);
     rec.start();
     setRecording(true);
   };
 
-  if (!supported) {
-    return (
-      <p className="hint recorder-hint">
-        Recording needs a browser with microphone access over HTTPS or localhost.
-      </p>
-    );
-  }
+  if (!supported) return <p className="quiet">Recording needs microphone access (HTTPS or localhost).</p>;
 
   return (
-    <div className="recorder">
-      <div className={"recorder-row" + (recording ? " is-recording" : "")}>
-        <button type="button" className={"key key--small" + (recording ? " key--rec" : "")}
-          aria-pressed={recording} disabled={disabled && !recording}
-          onClick={() => (recording ? stop() : start())}>
-          <span className="rec-dot" aria-hidden="true" />
-          {recording ? "Stop recording" : "Record carrier"}
-        </button>
-        <span className="recorder-meter" aria-hidden="true">
-          <span className="recorder-meter-fill" ref={meterRef} />
-        </span>
-        <span className={"recorder-time" + (recording ? " is-live" : "")}
-          aria-live="polite">{recording ? clock(elapsed) : ""}</span>
-      </div>
-      {err
-        ? <p className="hint hint--bad recorder-hint" role="alert">{err}</p>
-        : <p className="hint recorder-hint">
-            Or capture from your microphone. Saved as audio and converted on the server.
-          </p>}
+    <div className={"recorder" + (recording ? " is-recording" : "")}>
+      <button type="button" className={"slot-key slot-key--rec" + (recording ? " is-on" : "")}
+        aria-pressed={recording} disabled={disabled && !recording}
+        onClick={() => (recording ? stop() : start())}>
+        <span className="rec-dot" aria-hidden="true" />
+        {recording ? "Stop" : label}
+        {recording && <span className="rec-time">{clock(elapsed)}</span>}
+      </button>
+      {recording && live && !onLive && <LiveRoll analyser={analyser} sampleRate={rate} />}
+      {err && <p className="quiet quiet--bad" role="alert">{err}</p>}
     </div>
   );
 }
