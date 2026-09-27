@@ -116,8 +116,11 @@ function useFit(cols: number, rows: number) {
       const dpr = window.devicePixelRatio || 1;
       const w = el.clientWidth, h = el.clientHeight;
       const n = Math.floor(Math.min((w * dpr) / cols, (h * dpr) / rows));
-      if (n >= 1) setFit({ w: (cols * n) / dpr, h: (rows * n) / dpr, n });
-      else { const s = Math.min(w / cols, h / rows); setFit({ w: cols * s, h: rows * s, n: 0 }); }
+      const s = Math.min(w / cols, h / rows);
+      // whole device pixels per image pixel when that still fills the box; otherwise the
+      // exact fit (still drawn pixelated, never smoothed), so a small box is not left empty
+      if (n >= 1 && (cols * n) / dpr >= 0.8 * cols * s) setFit({ w: (cols * n) / dpr, h: (rows * n) / dpr, n });
+      else setFit({ w: cols * s, h: rows * s, n: 0 });
     };
     measure();
     const ro = new ResizeObserver(measure);

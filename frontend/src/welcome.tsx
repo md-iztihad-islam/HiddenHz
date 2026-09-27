@@ -78,7 +78,7 @@ export function Welcome({ go }: { go: (t: "encode" | "decode" | "lab") => void }
           <p className="chapter-sub">Press play. Nothing but rain.</p>
           <Player src="/demo-rain.wav" audio={audio} label="the demo file" />
         </div>
-        <Scope source={DEMO} audio={audio} label="The spectrogram sees this" empty="" initial="3d"
+        <Scope source={DEMO} audio={audio} label="The spectrogram sees this" empty="" initial="3d" payload="Your image"
           formula={<><i>X</i>[<i>k</i>, <i>t</i>] = Σ<sub><i>n</i></sub> <i>x</i>[<i>n</i> + <i>tH</i>] <i>w</i>[<i>n</i>] e<sup>−<i>j</i>2π<i>kn</i>/<i>N</i></sup></>} />
       </section>
 
@@ -98,7 +98,7 @@ export function Welcome({ go }: { go: (t: "encode" | "decode" | "lab") => void }
         </button>
         <button type="button" className="way way--air" onClick={() => go("encode")}>
           <span className="way-icon"><Glyph name="mic" /></span>
-          <b>Air</b><span>Through speakers, phones, Telegram</span>
+          <b>Air</b><span>Through speakers and phones</span>
         </button>
         <button type="button" className="way way--lab" onClick={() => go("lab")}>
           <span className="way-icon"><Glyph name="flask" /></span>

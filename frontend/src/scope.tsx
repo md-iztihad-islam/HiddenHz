@@ -63,8 +63,9 @@ export type Mark = { f: number; t: number } | null;
  * The instrument screen: the spectrogram of a file, light on black. 2D shows the spectrum
  * with the payload band glowing and the band enlarged beneath; 3D shows it as a landscape.
  */
-export function Scope({ source, audio, busy, empty, mark, label, formula, initial = "3d", compact }: {
+export function Scope({ source, audio, busy, empty, mark, label, formula, initial = "3d", compact, payload }: {
   source: SpecSource | null; audio?: RefObject<HTMLAudioElement | null>;
+  payload?: string;
   busy?: ReactNode; empty: ReactNode; mark?: Mark; label: string; formula?: ReactNode;
   initial?: "2d" | "3d"; compact?: boolean;
 }) {
@@ -184,7 +185,7 @@ export function Scope({ source, audio, busy, empty, mark, label, formula, initia
       {field && view === "3d" && (
         <div className="scope-3d">
           <Suspense fallback={<div className="scope-empty"><Scanning /></div>}>
-            <Terrain field={field} audio={audio} timeOf={at} mark={mark} />
+            <Terrain field={field} audio={audio} timeOf={at} mark={mark} payload={payload} />
           </Suspense>
           <span className="scope-hint" aria-hidden="true">drag to turn</span>
           <span className="axis3d axis3d--t" aria-hidden="true">time →</span>

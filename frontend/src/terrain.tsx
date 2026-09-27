@@ -21,19 +21,26 @@ function sample(f: Field, u: number, w: number) {
   return { v: f.main.v[y * f.main.w + x], band: false };
 }
 
-type Label = { title: string; sub: string; u: number; hz: number; lift: number; side: "left" | "right"; minor?: boolean };
+type Label = { title: string; u: number; hz: number; lift: number; side: "left" | "right"; minor?: boolean };
 
-function labelsFor(f: Field): Label[] {
+/** Is there a carrier sound under the payload? (measured: 0.49 with rain, 0.008 without) */
+function hasAudio(f: Field) {
+  const { w, h, v } = f.main;
+  const lo = Math.floor((1 - 14000 / f.viewHz) * h), hi = Math.floor((1 - 300 / f.viewHz) * h);
+  let sum = 0, n = 0;
+  for (let y = Math.max(0, lo); y < Math.min(h, hi); y++)
+    for (let x = 0; x < w; x += 4) { sum += v[y * w + x]; n++; }
+  return n > 0 && sum / n > 0.08;
+}
+
+function labelsFor(f: Field, payload: string): Label[] {
   const mid = (f.bandHz[0] + f.bandHz[1]) / 2;
-  if (f.mode === "air") {
-    return f.band ? [{ title: "Your message, as notes", sub: "0.75–4.8 kHz · five lanes",
-                       u: 0.45, hz: mid, lift: LIFT * 0.55, side: "left" }] : [];
-  }
   const out: Label[] = [];
-  if (f.band) out.push({ title: "Your picture, scrambled", sub: "15–22 kHz · too high to hear",
-                         u: 0.36, hz: mid, lift: LIFT * 0.62, side: "left" });
-  out.push({ title: "The rain you hear", sub: "below 14.5 kHz",
-             u: 0.66, hz: Math.min(5000, f.viewHz * 0.25), lift: 0.12, side: "right", minor: true });
+  if (f.band) out.push({ title: payload, u: f.mode === "air" ? 0.45 : 0.36, hz: mid,
+                         lift: LIFT * (f.mode === "air" ? 0.55 : 0.62), side: "left" });
+  if (f.mode === "hidden" && hasAudio(f))
+    out.push({ title: "Your audio", u: 0.66, hz: Math.min(5000, f.viewHz * 0.25), lift: 0.12,
+               side: "right", minor: true });
   return out;
 }
 
@@ -42,8 +49,10 @@ function labelsFor(f: Field): Label[] {
  * screen, loudness is height. The payload band rises in the mode's colour. The terrain
  * grows out of the floor when it arrives, sways slowly, and can be dragged round.
  */
-export function Terrain({ field, audio, timeOf, className, mark }: {
+export function Terrain({ field, audio, timeOf, className, mark, payload = "Your hidden data" }: {
   field: Field | null;
+  /** what the tall part is called: "Your image", "Your message", "Your file" */
+  payload?: string;
   /** a tone to point at: the pixel under the cursor on the recovered picture */
   mark?: { f: number; t: number } | null;
   audio?: RefObject<HTMLAudioElement | null>;
@@ -64,16 +73,16 @@ export function Terrain({ field, audio, timeOf, className, mark }: {
     renderer.setClearColor(0x000000, 0);
     el.appendChild(renderer.domElement);
 
-    // what the spikes are: small labels with curved arrows, pinned to points on the terrain
+    // what the parts are: short labels with curved arrows, pinned to points on the terrain
     const arrow = (side: "left" | "right") =>
       `<svg viewBox="0 0 96 64" aria-hidden="true"><path d="${side === "left"
         ? "M4 6 C 40 4, 78 18, 90 58" : "M92 6 C 56 4, 18 18, 6 58"}"/><path d="${side === "left"
         ? "M82 52 L90 58 L91 48" : "M14 52 L6 58 L5 48"}"/></svg>`;
-    const notes = labelsFor(field).map((n) => {
+    const notes = labelsFor(field, payload).map((n) => {
       const div = document.createElement("div");
       const base = "t-note" + (n.minor ? " t-note--minor" : "");
       div.className = base + " t-note--" + n.side;
-      div.innerHTML = arrow(n.side) + `<span><b>${n.title}</b><small>${n.sub}</small></span>`;
+      div.innerHTML = arrow(n.side) + `<span><b>${n.title}</b></span>`;
       el.appendChild(div);
       const w = n.hz / field.viewHz;
       return { div, base, side: n.side, at: new THREE.Vector3((n.u - 0.5) * WIDTH, n.lift, (1 - w) * DEPTH - DEPTH / 2) };
@@ -233,7 +242,7 @@ export function Terrain({ field, audio, timeOf, className, mark }: {
       renderer.domElement.remove();
       notes.forEach((n) => n.div.remove());
     };
-  }, [field, audio, timeOf]);
+  }, [field, audio, timeOf, payload]);
 
   return <div className={"terrain " + (className ?? "")} ref={host} aria-hidden="true" />;
 }

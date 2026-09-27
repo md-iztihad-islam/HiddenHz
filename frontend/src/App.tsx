@@ -174,6 +174,7 @@ function EncodePanel({ cfg, onMade, go }: {
         {out && phase === "done" && (
           <div className="result-block rise-in">
             <Scope source={out.plate} audio={audio} label="Your file, as a spectrum"
+              payload={out.info.kind === "image" ? "Your image" : out.info.kind === "text" ? "Your message" : "Your file"}
               busy={out.plate ? null : "Measuring the spectrum…"} empty=""
               formula={mode === "air"
                 ? <><i>x</i>[<i>n</i>] = Σ<sub><i>c</i></sub> cos(φ<sub><i>c</i></sub> + 2π<i>k</i><sub><i>c</i></sub><i>n</i>/<i>N</i>)</>
@@ -196,7 +197,7 @@ function EncodePanel({ cfg, onMade, go }: {
                 </span>
               </div>
             )}
-            {out.info.mode === "air" && <p className="tip">Play it out loud, record it on another phone or in Telegram, then drop the recording on Decode.</p>}
+            {out.info.mode === "air" && <p className="tip">Play it out loud, record it on another device, then drop the recording on Decode.</p>}
           </div>
         )}
       </section>
@@ -246,7 +247,7 @@ function DecodePanel({ input, setInput }: { input: Source | null; setInput: (s: 
       <section className="controls" aria-labelledby="dec-title">
         <h1 id="dec-title" className="face-title">Reveal it</h1>
         <DropWell label="Drop the audio" kind="audio" accept="audio/*,.ogg,.oga,.opus"
-          file={input?.file ?? null} hint="WAV, or a voice note for Air"
+          file={input?.file ?? null} hint="WAV, or a recording for Air"
           onPick={(f) => setInput(f ? { file: f, plate: null } : null)} />
         <Recorder label="Listen with the mic" onLive={onLive}
           onRecorded={(f) => setInput({ file: f, plate: null })} disabled={busy} />
@@ -262,6 +263,8 @@ function DecodePanel({ input, setInput }: { input: Source | null; setInput: (s: 
         {live
           ? <LiveRoll analyser={live.an} sampleRate={live.rate} />
           : <Scope source={input?.plate ?? null} audio={audio} label="What arrived" mark={mark}
+              payload={out?.info.kind === "image" ? "Your image" : out?.info.kind === "text" ? "Your message"
+                : out?.info.kind === "file" ? "Your file" : undefined}
               busy={measuring ? "Measuring the spectrum…" : null}
               empty="Drop a file, or listen with the mic."
               formula={<><i>X</i>[<i>k</i>, <i>t</i>] = Σ<sub><i>n</i></sub> <i>x</i>[<i>n</i> + <i>tH</i>] <i>w</i>[<i>n</i>] e<sup>−<i>j</i>2π<i>kn</i>/<i>N</i></sup></>} />}

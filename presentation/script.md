@@ -24,7 +24,7 @@
    - `backup-stego.wav`, already made with the password `rainyday`, in case anything fails
 4. The password is **rainyday**. The wrong one is **sunnyday**.
 5. Turn the volume to about 60 %. Set the browser zoom to 110–125 % so the back row can read it.
-6. Open the slides (`HiddenHz-v2.pptx`) in slideshow mode, with the browser ready behind them.
+6. Open the slides (`HiddenHz-final.pptx`) in slideshow mode, with the browser ready behind them.
 
 ---
 
@@ -32,9 +32,8 @@
 
 ### 1. HiddenHz (Rayyan, 0:00)
 
-> Hi everyone. I'm Rayyan, and this is Iztihad. This is HiddenHz. We hide a picture inside
-> a normal sound, like rain. You hear rain. With the right password, you get the picture
-> back.
+> Hi everyone. I'm Rayyan, and this is Iztihad. This is HiddenHz. We hide a picture inside a
+> normal sound, like rain. You hear rain. With the right password, you get the picture back.
 
 **Click.**
 
@@ -42,102 +41,112 @@
 
 *Point at the three things on the left, then the file, then the two results on the right.*
 
-> We give it three things: a picture, a password, and a sound. We get back a WAV file that
-> still sounds like rain. Same password, and the picture comes back. Wrong password, and you
-> get noise.
+> We give it a picture, a password and a sound. Out comes a WAV file that still sounds like
+> rain. Same password, and the picture comes back. Wrong password, and you get noise.
 
 **Click.**
 
-### 3. A spectrogram is an image (Rayyan, 0:34)
+### 3. A spectrogram is an image (Rayyan, 0:32)
 
 *Point at the small frames on the left, then the big picture on the right.*
 
 > The main idea is the spectrogram. We cut the sound into short pieces and run an FFT on
-> each one. Every piece becomes one column. Put the columns side by side, and you get a
-> picture of the sound. So we work backwards: we start with the picture, then make the
-> sound.
+> each one. Each piece becomes one column, and side by side they make a picture of the
+> sound. So we work backwards: start with the picture, then make the sound.
 
 **Click.**
 
-### 4. Where the picture lives (Rayyan, 1:00)
+### 4. Where the picture lives (Rayyan, 0:55)
 
 *Point at the orange band.*
 
-> We put the picture between 15 and 22 kilohertz. Most adults can't hear that high. That
+> We put the picture between 15 and 22 kilohertz, too high for most adults to hear. That
 > band fits 150 tones, one for each row of the picture. We also cut the rain up there, so it
 > doesn't cover the picture.
 
 **Click.**
 
-### 5. Hann window (Rayyan, 1:21)
+### 5. Hann window: keeping tones apart (Rayyan, 1:14)
 
-*Point at the left picture, then the right one.*
+*Point at the wave with the red circle first (the hard cut), then the left picture (gaps), then the right one (no gaps).*
 
-> Why the gaps between tones? A tone that's cut sharply smears into every frequency. The
-> Hann window smooths the edges, so each tone only spreads into its neighbours. With a gap,
-> the tones stay clean. Without it, quality drops from 0.98 to 0.59.
+> Why the gaps between tones? To take an FFT, we chop the sound into short pieces, and the
+> edges of each piece are hard cuts. A hard cut makes a tone spill into nearby frequencies,
+> like ink bleeding on paper. The Hann window fades each piece in and out, so a tone only
+> spills into the two slots right next to it. Leave one empty slot between tones, and the
+> spill lands there. Pack them tight, and quality drops from 0.98 to 0.59.
 
 **Click.**
 
-### 6. Back to sound (Rayyan, 1:43)
+> **If someone asks: "You follow the Nyquist limit, so why is there any overlap?"**
+> Nyquist and this are two different problems. Nyquist is about sampling fast enough: at
+> 48 kHz we can hold anything up to 24 kHz, so nothing folds back as a false tone. We follow
+> that. The spill here comes from chopping the sound into short pieces for the FFT. The FFT
+> treats each piece as if it repeated forever, and our tones change loudness from column to
+> column, so the piece doesn't join up with itself at the edges. That jump spreads a tone
+> into its neighbours. The Hann window softens the edges, so the spread stays in the two
+> slots next to each tone, and our empty slot catches it.
+
+### 6. Back to sound (Rayyan, 1:53)
 
 *Point at the top row of clocks, then the bottom row.*
 
-> To get sound back, we run the FFT in reverse on every column and blend them together. Each
-> tone keeps a steady phase, like a real note. A bit of silence at both ends stops a loud
-> click. Iztihad will take it from here.
+> To get sound back, we run the FFT in reverse on every column and blend them. Each tone
+> keeps a steady phase, like a real note, and a bit of silence at both ends stops a click.
+> Iztihad will take it from here.
 
 **Click. Iztihad steps forward.**
 
-### 7. Each column lasts eight frames (Iztihad, 2:05)
+### 7. Each column lasts eight frames (Iztihad, 2:13)
 
 *Point at the middle of the drawing, then the tall bar.*
 
-> Thanks. When we read it back, the frames overlap, so a column that changes too fast gets
-> blurred. So we hold each column for eight frames and read only the clean middle four.
-> That took quality from 25 to 49 decibels.
+> Thanks. When we read it back, the pieces overlap, so a column that changes too fast gets
+> blurred. So we hold each column for eight frames and read only the clean middle four. That
+> took quality from 25 to 49 decibels.
 
 **Click.**
 
-### 8. What the password does (Iztihad, 2:25)
+### 8. What the password does (Iztihad, 2:33)
 
 *Point left, then right.*
 
-> Our first idea was to use the password on the phase. But a spectrogram ignores phase, so
-> a wrong password still showed the picture. So now the password shuffles the pixels, first
-> the rows, then the columns. Right password: 0.975. Wrong one: about zero.
+> Our first idea was to use the password on the phase. But a spectrogram ignores phase, so a
+> wrong password still showed the picture. Now the password shuffles the pixels, rows then
+> columns. Right password: 0.975. Wrong one: about zero.
 
 **Click.**
 
-### 9. Air mode (Iztihad, 2:47)
+### 9. Air mode (Iztihad, 2:52)
 
-*Point at the phone, the voice message, the laptop, then the notes at the bottom.*
+*Point at the phone, the recording, the laptop, then the notes at the bottom.*
 
-> Hidden mode has one weakness. Phones and apps like Telegram throw away that high band. So
-> we built Air mode. It sends the data as notes between one and five kilohertz, with error
-> correction. You can hear it, but it survives a phone speaker and a voice message.
+> Hidden mode has one weakness: phones and messaging apps squash sound, and the high band
+> goes first. So we built Air mode. It sends the data as notes between one and five
+> kilohertz, with error correction. You can hear it, but it survives a phone speaker and a
+> recording.
 
 **Click.**
 
-### 10. The lab (Iztihad, 3:12)
+### 10. The lab (Iztihad, 3:16)
 
 *Point along the row of boxes, then along the five pictures.*
 
-> We also built a lab to attack our own files with filters, noise and clipping. Here the
-> picture survives light noise, gets damaged at 15 decibels, and is lost at 5. A high-pass
-> filter only removes the rain. A low-pass at 18 kilohertz wipes the picture out.
+> We also built a lab to attack our own files. With noise, the picture survives, then gets
+> damaged at 15 decibels, and is lost at 5. A high-pass filter only removes the rain. A low-
+> pass at 18 kilohertz wipes the picture out.
 
 **Click.**
 
-### 11. Cost and limits (Iztihad, 3:37)
+### 11. Size and limits (Iztihad, 3:36)
 
-> A 150 by 150 picture needs about 13 seconds of audio, and colour costs one and a half
-> times that. The limits: MP3 deletes our band, so Hidden mode needs WAV. *(skip if late:
-> And anyone who looks at the spectrogram can see something is there.)*
+> A 150 by 150 picture needs about 13 seconds of audio, colour about 20. The limits: MP3
+> deletes our band, so Hidden mode needs WAV. *(skip if late: And anyone who looks at the
+> spectrogram can see something is there.)*
 
 **Click.**
 
-### 12. Thank you (Iztihad, 3:57)
+### 12. Thank you (Iztihad, 3:54)
 
 > That's the idea. Now let's show you the app.
 
@@ -155,10 +164,11 @@
 
 *Rayyan scrolls down to "You hear rain" and presses play. Let it play for about 3 seconds.*
 
-> This is a file we made earlier. It just sounds like rain. But look at it in 3D. The purple
-> part at the front is the rain. The tall part at the back is our picture, still scrambled.
+> This is a file we made earlier. It just sounds like rain. But look at it in 3D. The low
+> part at the front is the audio, the rain. The tall part at the back is our image, still
+> scrambled.
 
-*Point at the label **Your picture, scrambled**. Rayyan pauses the sound.*
+*Point at the label **Your image**. Rayyan pauses the sound.*
 
 ### 0:25 Hiding a picture (Iztihad talks, Rayyan clicks)
 
@@ -222,7 +232,7 @@ Click **Hide it**.*
 
 *Press play for 2 seconds.*
 
-> You could play this out loud, record it as a Telegram voice note, and it would still work.
+> You could play this out loud, record it on another phone, and it would still work.
 
 *Click **Decode it**. The password is still `rainyday`. Click **Reveal**.*
 
