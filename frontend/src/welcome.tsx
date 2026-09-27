@@ -94,11 +94,11 @@ export function Welcome({ go }: { go: (t: "encode" | "decode" | "lab") => void }
       <section className="ways">
         <button type="button" className="way way--hidden" onClick={() => go("encode")}>
           <span className="way-icon"><Glyph name="image" /></span>
-          <b>Hidden</b><span>Inaudible, above 15 kHz</span>
+          <b>Hide</b><span>A picture, a message or a file, above 15 kHz</span>
         </button>
-        <button type="button" className="way way--air" onClick={() => go("encode")}>
-          <span className="way-icon"><Glyph name="mic" /></span>
-          <b>Air</b><span>Through speakers and phones</span>
+        <button type="button" className="way way--reveal" onClick={() => go("decode")}>
+          <span className="way-icon"><Glyph name="key" /></span>
+          <b>Reveal</b><span>Only the right password brings it back</span>
         </button>
         <button type="button" className="way way--lab" onClick={() => go("lab")}>
           <span className="way-icon"><Glyph name="flask" /></span>

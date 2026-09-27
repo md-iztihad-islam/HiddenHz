@@ -35,8 +35,7 @@ def spectrogram(wav_bytes: bytes, n_fft: int = CFG.n_fft, hop: int = CFG.hop,
     Returns (png, band_png, info). Both PNGs are one pixel per bin and per frame, with
     no margins or labels; the frontend draws the axes from `info`. `png` is the whole
     spectrum; `band_png` is bins band_bins[0]..band_bins[1] rescaled to their own peak,
-    or None when the rate is not one of the codec's. `band` overrides which band that is
-    (Air mode lives at 0.75-4.8 kHz).
+    or None when the rate is not one of the codec's. `band` overrides which band that is.
     """
     try:
         x, sr = sf.read(io.BytesIO(wav_bytes), dtype="float64", always_2d=True)

@@ -1,7 +1,7 @@
 import { useEffect, useRef, type RefObject } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { INFERNO, bandMap } from "./colormap";
+import { EMBER, INFERNO } from "./colormap";
 import type { Field } from "./field";
 
 const GX = 320, GZ = 150;          // grid: time columns x frequency rows
@@ -36,9 +36,8 @@ function hasAudio(f: Field) {
 function labelsFor(f: Field, payload: string): Label[] {
   const mid = (f.bandHz[0] + f.bandHz[1]) / 2;
   const out: Label[] = [];
-  if (f.band) out.push({ title: payload, u: f.mode === "air" ? 0.45 : 0.36, hz: mid,
-                         lift: LIFT * (f.mode === "air" ? 0.55 : 0.62), side: "left" });
-  if (f.mode === "hidden" && hasAudio(f))
+  if (f.band) out.push({ title: payload, u: 0.36, hz: mid, lift: LIFT * 0.62, side: "left" });
+  if (hasAudio(f))
     out.push({ title: "Your audio", u: 0.66, hz: Math.min(5000, f.viewHz * 0.25), lift: 0.12,
                side: "right", minor: true });
   return out;
@@ -99,14 +98,14 @@ export function Terrain({ field, audio, timeOf, className, mark, payload = "Your
     const pos = geo.attributes.position as THREE.BufferAttribute;
     const heights = new Float32Array(pos.count);
     const colors = new Float32Array(pos.count * 3);
-    const bmap = bandMap(field.mode);
+    const bmap = EMBER;
     for (let k = 0; k < pos.count; k++) {
       const u = (pos.getX(k) + WIDTH / 2) / WIDTH;
       const w = 1 - (pos.getZ(k) + DEPTH / 2) / DEPTH;   // back of the plane = high frequency
       const { v, band } = sample(field, u, w);
       // the band image is normalised to its own peak, so most of it sits near 1: a steep
       // curve keeps its dark pixels low and lets the picture's structure show as relief
-      const lv = band ? Math.pow(v, field.mode === "air" ? 1.8 : 2.6) : Math.pow(v, 2.2);
+      const lv = band ? Math.pow(v, 2.6) : Math.pow(v, 2.2);
       heights[k] = lv * (band ? LIFT * 0.85 : LIFT * 0.5);
       const m = band ? bmap : INFERNO;
       const i = Math.round(Math.min(1, band ? Math.pow(v, 1.3) : lv * 0.95 + 0.04) * 255) * 3;
@@ -127,7 +126,7 @@ export function Terrain({ field, audio, timeOf, className, mark, payload = "Your
 
     // playhead: a thin lit sheet sweeping across time
     const headMat = new THREE.MeshBasicMaterial({
-      color: field.mode === "air" ? 0x7fb0ff : 0xff8a6a, transparent: true, opacity: 0.0,
+      color: 0xff8a6a, transparent: true, opacity: 0.0,
       side: THREE.DoubleSide, depthWrite: false,
     });
     const head = new THREE.Mesh(new THREE.PlaneGeometry(DEPTH, 2.2), headMat);
@@ -139,7 +138,7 @@ export function Terrain({ field, audio, timeOf, className, mark, payload = "Your
     const onTop = { depthTest: false, depthWrite: false, transparent: true };
     const beadMat = new THREE.MeshBasicMaterial({ color: 0xffffff, ...onTop });
     const bead = new THREE.Mesh(new THREE.SphereGeometry(0.16, 24, 16), beadMat);
-    const haloMat = new THREE.MeshBasicMaterial({ color: field.mode === "air" ? 0x3f7bff : 0xff5a3c, opacity: 0.55, ...onTop });
+    const haloMat = new THREE.MeshBasicMaterial({ color: 0xff5a3c, opacity: 0.55, ...onTop });
     const halo = new THREE.Mesh(new THREE.SphereGeometry(0.34, 24, 16), haloMat);
     const stemMat = new THREE.MeshBasicMaterial({ color: 0xffffff, opacity: 0.9, ...onTop });
     const stemGeo = new THREE.CylinderGeometry(0.022, 0.022, 1, 10).translate(0, 0.5, 0);
@@ -203,7 +202,7 @@ export function Terrain({ field, audio, timeOf, className, mark, payload = "Your
       if (m && timeOf) {
         const u = timeOf(m.t), w = Math.min(1, m.f / field.viewHz);
         const { v, band } = sample(field, u, w);
-        const hgt = (band ? Math.pow(v, field.mode === "air" ? 1.8 : 2.6) * LIFT * 0.85 : Math.pow(v, 2.2) * LIFT * 0.5) * grow;
+        const hgt = (band ? Math.pow(v, 2.6) * LIFT * 0.85 : Math.pow(v, 2.2) * LIFT * 0.5) * grow;
         marker.position.set((u - 0.5) * WIDTH, 0, (1 - w) * DEPTH - DEPTH / 2);
         const top = hgt + 0.6;
         bead.position.y = top; halo.position.y = top;

@@ -4,7 +4,7 @@ Our radix-2 FFT, run on many frames at once.
 fft_core.fft transforms one frame per call, so a spectrogram of a long recording spends
 most of its time in the Python loop, not the butterflies. This is the same decimation in
 time, with the frames stacked as rows so every stage handles all of them together. Used
-by Air mode, which has to scan whole recordings for its sync chirps.
+by the decoder and the spectrogram figures, which transform thousands of frames per file.
 """
 import numpy as np
 

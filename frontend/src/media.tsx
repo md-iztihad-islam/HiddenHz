@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { INFERNO } from "./colormap";
-import { AIR_VIEW_HZ } from "./field";
+
+const VIEW_HZ = 8000;   // the microphone view: where speech, music and rain live
 
 export function useObjectUrl(blob: Blob | null) {
   const [url, setUrl] = useState<string | null>(null);
@@ -29,15 +30,15 @@ function clock(s: number) {
 }
 
 /** A round play key, a thin progress line and the time. The <audio> drives the screens. */
-export function Player({ src, audio, label, tone = "hidden" }: {
-  src: string; audio: RefObject<HTMLAudioElement | null>; label: string; tone?: "hidden" | "air";
+export function Player({ src, audio, label }: {
+  src: string; audio: RefObject<HTMLAudioElement | null>; label: string;
 }) {
   const [playing, setPlaying] = useState(false);
   const [t, setT] = useState(0);
   const [d, setD] = useState(0);
   useEffect(() => { setPlaying(false); setT(0); }, [src]);
   return (
-    <div className={"player player--" + tone}>
+    <div className="player">
       <audio ref={audio} src={src} preload="auto"
         onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}
         onTimeUpdate={(e) => setT(e.currentTarget.currentTime)}
@@ -74,7 +75,7 @@ export function LiveRoll({ analyser, sampleRate }: { analyser: AnalyserNode | nu
     const bins = analyser.frequencyBinCount;
     const buf = new Uint8Array(bins);
     const H = c.height, W = c.width;
-    const hiBin = Math.min(bins, Math.round((AIR_VIEW_HZ * 2 * bins) / sampleRate));
+    const hiBin = Math.min(bins, Math.round((VIEW_HZ * 2 * bins) / sampleRate));
     ctx.fillStyle = "#07080c"; ctx.fillRect(0, 0, W, H);
     const col = ctx.createImageData(3, H);
     let raf = 0;
@@ -99,7 +100,7 @@ export function LiveRoll({ analyser, sampleRate }: { analyser: AnalyserNode | nu
   return (
     <div className="liveroll">
       <canvas ref={ref} width={900} height={260} aria-hidden="true" />
-      <span className="live-badge"><i />Listening · 0–7 kHz</span>
+      <span className="live-badge"><i />Listening · 0–8 kHz</span>
     </div>
   );
 }
@@ -131,43 +132,14 @@ function useFit(cols: number, rows: number) {
 }
 
 /**
- * A decoded picture at whole device pixels. effect: "develop" resolves it from coarse blocks
- * to full detail; "glitch" shows it tearing (a wrong password's noise).
+ * A decoded picture at whole device pixels where that fills the box. effect "glitch" shows it
+ * tearing (a wrong password's noise).
  */
 export function Pixels({ src, cols, rows, alt, effect, onPixel }: {
-  src: string; cols: number; rows: number; alt: string; effect?: "develop" | "glitch" | "none";
+  src: string; cols: number; rows: number; alt: string; effect?: "glitch" | "none";
   onPixel?: (p: { r: number; c: number } | null) => void;
 }) {
   const { box, fit } = useFit(cols, rows);
-  const canvas = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    if (effect !== "develop" || !canvas.current) return;
-    const c = canvas.current, ctx = c.getContext("2d")!;
-    c.width = cols; c.height = rows;
-    const img = new Image();
-    let raf = 0, alive = true;
-    img.onload = () => {
-      const small = document.createElement("canvas");
-      const sctx = small.getContext("2d")!;
-      const t0 = performance.now();
-      const frame = (now: number) => {
-        if (!alive) return;
-        const t = Math.min(1, (now - t0) / 1400);
-        const block = Math.max(1, Math.round(Math.pow(2, 5 * (1 - t))));
-        small.width = Math.max(1, Math.ceil(cols / block)); small.height = Math.max(1, Math.ceil(rows / block));
-        sctx.imageSmoothingEnabled = true;
-        sctx.drawImage(img, 0, 0, small.width, small.height);
-        ctx.imageSmoothingEnabled = false;
-        ctx.clearRect(0, 0, cols, rows);
-        ctx.drawImage(small, 0, 0, cols, rows);
-        if (t < 1) raf = requestAnimationFrame(frame); else ctx.drawImage(img, 0, 0, cols, rows);
-      };
-      raf = requestAnimationFrame(frame);
-    };
-    img.src = src;
-    return () => { alive = false; cancelAnimationFrame(raf); };
-  }, [src, cols, rows, effect]);
-
   const probe = onPixel && ((e: React.PointerEvent<HTMLElement>) => {
     const b = e.currentTarget.getBoundingClientRect();
     onPixel({ c: Math.min(cols - 1, Math.floor(((e.clientX - b.left) / b.width) * cols)),
@@ -175,11 +147,9 @@ export function Pixels({ src, cols, rows, alt, effect, onPixel }: {
   });
   return (
     <div className="pixels-box" ref={box}>
-      {fit && (effect === "develop"
-        ? <canvas ref={canvas} className="pixels" role="img" aria-label={alt} style={{ width: fit.w, height: fit.h }} />
-        : <img className={"pixels" + (effect === "glitch" ? " is-glitch" : "") + (onPixel ? " is-probe" : "")}
+      {fit && <img className={"pixels" + (effect === "glitch" ? " is-glitch" : "") + (onPixel ? " is-probe" : "")}
             key={src} src={src} alt={alt} style={{ width: fit.w, height: fit.h }}
-            onPointerMove={probe} onPointerLeave={onPixel && (() => onPixel(null))} />)}
+            onPointerMove={probe} onPointerLeave={onPixel && (() => onPixel(null))} />}
       {fit && <span className="pixels-scale">{cols} × {rows}{fit.n > 1 ? ` · ×${fit.n}` : ""}</span>}
     </div>
   );

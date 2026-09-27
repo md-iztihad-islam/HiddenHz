@@ -1,11 +1,11 @@
-"""Air mode, text messages and the channel lab. test_all.py stays the codec's spec."""
+"""Text messages and the channel lab. test_all.py stays the codec's spec."""
 import io
 
 import numpy as np
 import soundfile as sf
 from PIL import Image
 
-from app.pipeline import air, channel
+from app.pipeline import channel
 from app.pipeline.audio_io import write_wav
 from app.pipeline.encode import encode
 from app.pipeline.filecodec import TEXT_NAME
@@ -27,42 +27,8 @@ def _mono(wav):
     return x if x.ndim == 1 else x.mean(1), sr
 
 
-def test_air_text_round_trip_and_wrong_password():
-    wav, info = air.encode_air(air.KIND_TEXT, MSG.encode(), "rainyday")
-    payload, meta = decode_any(wav, "rainyday")
-    assert meta["mode"] == "air" and meta["kind"] == "text" and payload.decode() == MSG
-    payload, meta = decode_any(wav, "sunnyday")
-    assert payload is None and not meta["password_ok"] and meta["reason"] == "password"
 
 
-def test_air_survives_a_rough_channel():
-    """Offset start, other device's clock, speaker band limits, noise, level change."""
-    data = air.compress_image(_png(), colour=True)
-    wav, _ = air.encode_air(air.KIND_IMAGE, data, "rainyday")
-    x, sr = _mono(wav)
-    x = channel.fir(x, channel.taps("highpass", sr, 350))
-    x = channel.fir(x, channel.taps("lowpass", sr, 7000))
-    x = np.concatenate([np.zeros(int(0.7 * sr)), x, np.zeros(sr // 2)])
-    k = 1 + 200e-6
-    x = np.interp(np.arange(int(x.size * k)) / k, np.arange(x.size), x)
-    x = 0.3 * channel.add_noise(x, 12, seed=3)
-    kind, name, out, meta = air.decode_air(x, "rainyday")
-    assert meta["password_ok"] and meta["intact"] and out == data
-    assert abs(meta["clock_ppm"] - 200) < 40
-
-
-def test_air_image_budget():
-    assert len(air.compress_image(_png(400, 300), colour=True)) <= air.IMAGE_BUDGET
-
-
-def test_convolutional_code_corrects_errors():
-    rng = np.random.default_rng(0)
-    bits = rng.integers(0, 2, 400).astype(np.uint8)
-    coded = air.conv_encode(bits)
-    llr = 1.0 - 2.0 * coded
-    flip = rng.random(coded.size) < 0.04
-    llr[flip] *= -1
-    assert np.array_equal(air.viterbi(llr), bits)
 
 
 def test_hidden_text_message():
@@ -94,21 +60,6 @@ def test_channel_lab_on_a_hidden_picture():
     assert decode_any(write_wav(keep, sr), "rainyday")[1]["quality"] == "clean"
     assert decode_any(write_wav(gone, sr), "rainyday")[1]["quality"] == "none"
 
-
-def test_air_notes_are_the_tones_sent():
-    """The piano roll the UI draws must be the symbols actually modulated."""
-    wav, info = air.encode_air(air.KIND_TEXT, MSG.encode(), "rainyday")
-    n = info["notes"]
-    assert len(n["symbols"]) == (n["train"] + info["symbols"]) * n["channels"]
-    x, sr = _mono(wav)
-    k = n["train"] + 3                                   # a data symbol
-    start = int(round(n["t0"] * sr)) + k * air.N_SYM
-    heard = air._symbol_energy(x, np.array([start]))[0].argmax(axis=1)
-    # _symbol_energy reads the grid of symbol index 0; data symbol k uses grid k % 2
-    if k % 2:
-        P = np.abs(np.fft.rfft(x[start + air.GUARD: start + air.GUARD + air.N_WIN])) ** 2   # test only
-        heard = P[air.tone_bins(1)].argmax(axis=1)
-    assert heard.tolist() == n["symbols"][k * n["channels"]:(k + 1) * n["channels"]]
 
 
 def test_band_snr_readout():

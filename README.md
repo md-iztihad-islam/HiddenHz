@@ -11,16 +11,7 @@ Repo: [github.com/md-iztihad-islam/HiddenHz](https://github.com/md-iztihad-islam
 Every transform in the codec runs on our own radix-2 FFT (`backend/app/dsp/`); the codec
 does not use `numpy.fft`, `scipy` or `librosa`.
 
-## Two modes
-
-| mode | band | audible | survives | use it for |
-|---|---|---|---|---|
-| **Hidden** | 15–22 kHz, under a carrier such as rain | no | WAV and FLAC files | an inaudible payload in a file that is shared losslessly |
-| **Air** | 0.75–4.8 kHz | yes | speakers, microphones, voice-message codecs (Opus) | sending a payload through a phone call or a Telegram voice note |
-
-The decoder detects the mode itself and needs only the password.
-
-### Hidden mode
+## How it works
 
 The payload is drawn directly as the audio's spectrogram. Each image row is a steady tone
 on every second STFT bin between 15 and 22 kHz (150 rows at 48 kHz, N = 2048, hop = 512);
@@ -37,20 +28,11 @@ signal is synthesised with an inverse STFT and mixed into the carrier, whose con
 | file or text | bits, Hamming(7,4) + CRC-32 | ~125 bytes per second |
 
 The **Detail** preset (N = 4096) gives 299 rows at four times the audio length. Files are
-capped at 10 minutes of audio (about 70 KB at 48 kHz). Share Hidden-mode audio as **WAV or
-FLAC only**: MP3, AAC, Opus and loudspeakers all remove the band above ~15 kHz.
+capped at 10 minutes of audio (about 70 KB at 48 kHz). Share the audio as **WAV or
+FLAC only**: MP3, AAC, Opus and loudspeakers all remove the band above ~15 kHz. The decoder
+needs only the password: it reads the preset and the layout from the audio itself.
 
-### Air mode
-
-Data is sent as 5 parallel channels of 8-FSK (32 ms symbols with a 10.7 ms echo guard),
-protected by a rate-½, K = 7 convolutional code with soft-decision Viterbi decoding and an
-interleaver. Start and end chirps give synchronisation and clock-drift correction; training
-symbols equalise the speaker, room and microphone. The packet is encrypted with a
-PBKDF2-derived keystream and carries a CRC-32, so the payload arrives exactly or is
-reported as damaged. Throughput is about 29 bytes per second; images are compressed to WebP
-under 900 bytes. See `backend/app/pipeline/air.py`.
-
-### Channel lab
+## Channel lab
 
 The app can attack a stego file and decode what survives: low-pass, high-pass and
 band-stop filters (255-tap windowed-sinc FIR, Hamming window), white noise at a chosen SNR,
@@ -67,8 +49,8 @@ python -m pytest app/tests -q                         # 28 tests
 uvicorn app.api.main:app --reload --port 8000         # API docs at /docs
 ```
 
-`test_all.py` is the specification for the Hidden-mode codec: each test corresponds to a
-claim in `docs/PLAN.md`. `test_features.py` covers Air mode, text payloads and the lab.
+`test_all.py` is the specification for the codec: each test corresponds to a
+claim in `docs/PLAN.md`. `test_features.py` covers text payloads and the lab.
 
 Frontend (Vite + React + Three.js, expects the API on port 8000):
 
@@ -87,14 +69,14 @@ environment variable or an `ffmpeg` on `PATH` takes precedence.
 
 | method | path | body | returns |
 |---|---|---|---|
-| GET | `/api/config` | | capacity of every preset, Air mode limits |
-| POST | `/api/encode` | `password`, `mode` (`hidden`/`air`), `kind` (`image`/`text`/`file`), one of `image`, `text` or `file`; optional `carrier`, `detail`, `colour` | `info`, `wav_base64` (or `wav_url` above 4.5 MB when hosted) |
+| GET | `/api/config` | | capacity of every preset |
+| POST | `/api/encode` | `password`, `kind` (`image`/`text`/`file`), one of `image`, `text` or `file`; optional `carrier`, `detail`, `colour` | `info`, `wav_base64` (or `wav_url` above 4.5 MB when hosted) |
 | POST | `/api/decode` | `audio`, `password` | `info` with verdict and mode, plus `png_base64`, `text` or `file_base64` |
 | POST | `/api/spectrogram` | `audio`, optional `mode` | spectrogram images and axis data |
 | POST | `/api/channel` | `audio`, `password`, `ops` (JSON: `lowpass`, `highpass`, `bandstop`, `noise`, `clip`) | attacked audio, decode result, spectrogram, band SNR |
 | POST | `/api/sweep` | `audio`, `password`, `kind` (`noise`/`lowpass`) | decode result at each strength |
 
-A correct Hidden-mode decode also returns the password's tone map, which the web app uses to
+A correct decode also returns the password's tone map, which the web app uses to
 animate the unscrambling and to link each pixel to its tone.
 
 ## Deployment
@@ -107,12 +89,12 @@ and responses above 4.5 MB go through Vercel Blob storage (`api/blob-upload.js`,
 
 ```
 docs/PLAN.md            the design, the derivations, and every measured number
-docs/reference/         a reference implementation of the Hidden-mode codec
+docs/reference/         a reference implementation of the codec
 backend/app/
   config.py             every tunable number; encoder and decoder must agree
   dsp/                  radix-2 FFT (single and batched), Hann window, STFT/ISTFT
   keying/               password -> permutations and phases
-  pipeline/             encode, decode, image and audio I/O, file codec, Air mode, channel lab
+  pipeline/             encode, decode, image and audio I/O, file codec, channel lab
   api/main.py           FastAPI app
 frontend/src/           web app: welcome page, encode, decode, lab, 2D/3D spectrum views
 api/                    Vercel entry points

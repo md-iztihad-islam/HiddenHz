@@ -8,7 +8,7 @@ from fastapi import FastAPI, File, Form, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from ..config import config_for
-from ..pipeline import air, channel
+from ..pipeline import channel
 from ..pipeline.channel import band_snr_db
 from ..pipeline.encode import encode
 from ..pipeline.decode import _tone_map, decode
@@ -16,7 +16,7 @@ from ..keying.keyschedule import key_schedule
 from ..pipeline.filecodec import TEXT_NAME
 from ..pipeline.receive import decode_any
 from ..pipeline.spectrogram import spectrogram
-from ..pipeline.audio_io import resample, to_wav_bytes, write_wav
+from ..pipeline.audio_io import to_wav_bytes, write_wav
 from . import blobstore
 
 app = FastAPI(title="HiddenHz API", version="2.0")
@@ -68,9 +68,8 @@ def _result(payload: bytes | None, meta: dict) -> dict:
     return out
 
 
-def _plate(wav: bytes, mode: str) -> dict:
-    band = air.band_hz() if mode == "air" else None
-    png, band_png, info = spectrogram(wav, band=band)
+def _plate(wav: bytes) -> dict:
+    png, band_png, info = spectrogram(wav)
     return {"info": info, "png_base64": _b64(png), "band_png_base64": _b64(band_png)}
 
 
@@ -87,14 +86,11 @@ def get_config():
                 "seconds_for_square_gray": round(c.seconds_for(c.rows), 1),
                 "seconds_for_square_colour": round(c.seconds_for(c.rows, colour=True), 1),
             }
-    out["air"] = {"band_hz": list(air.band_hz()), "bytes_per_second": round(air.bytes_per_second(), 1),
-                  "max_bytes": air.MAX_BYTES, "image_bytes": air.IMAGE_BUDGET}
     return out
 
 
 @app.post("/api/encode")
 async def api_encode(password: str = Form(...),
-                     mode: str = Form("hidden"),
                      kind: str = Form(""),
                      text: str | None = Form(None),
                      image: UploadFile | None = File(None),
@@ -129,27 +125,17 @@ async def api_encode(password: str = Form(...),
         if src is None:
             raise HTTPException(400, "attach something to hide")
 
-        if mode == "air":
-            if kind == "image":
-                data, k = air.compress_image(src[0], colour), air.KIND_IMAGE
-            elif kind == "text":
-                data, k = src[0], air.KIND_TEXT
-            else:
-                data, k = src[0], air.KIND_FILE
-            wav, info = air.encode_air(k, data, password, "" if kind != "file" else src[1])
-            info["kind"] = kind
-        else:
-            car = await _read(carrier, carrier_url, carrier_name)
-            carrier_bytes = to_wav_bytes(car[0], car[1]) if car else None
-            wav, info = encode(src[0], password, carrier_bytes, max_cols,
-                               sample_rate=sample_rate, detail=detail, colour=colour,
-                               is_file=kind != "image", filename=src[1])
-            info.update(mode="hidden", kind=kind)
-            if kind == "image":
-                # the real permutation, so the UI's scramble animation is the codec's own
-                cfg = config_for(info["sample_rate"], info["detail"])
-                rp, cp, _ = key_schedule(password, info["rows"], info["grid_cols"])
-                info["tones"] = _tone_map(rp, cp, info["cols"], cfg)
+        car = await _read(carrier, carrier_url, carrier_name)
+        carrier_bytes = to_wav_bytes(car[0], car[1]) if car else None
+        wav, info = encode(src[0], password, carrier_bytes, max_cols,
+                           sample_rate=sample_rate, detail=detail, colour=colour,
+                           is_file=kind != "image", filename=src[1])
+        info.update(mode="hidden", kind=kind)
+        if kind == "image":
+            # the real permutation, so the UI's scramble animation is the codec's own
+            cfg = config_for(info["sample_rate"], info["detail"])
+            rp, cp, _ = key_schedule(password, info["rows"], info["grid_cols"])
+            info["tones"] = _tone_map(rp, cp, info["cols"], cfg)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     return {"info": info, **_binary(wav, "wav", "hiddenhz.wav", "audio/wav")}
@@ -173,23 +159,16 @@ async def api_decode(audio: UploadFile | None = File(None),
 @app.post("/api/spectrogram")
 async def api_spectrogram(audio: UploadFile | None = File(None),
                           audio_url: str | None = Form(None),
-                          audio_name: str | None = Form(None),
-                          mode: str = Form("")):
+                          audio_name: str | None = Form(None)):
     """Figure data for the frontend, computed with our own FFT."""
     try:
         got = await _read(audio, audio_url, audio_name)
         if got is None:
             raise HTTPException(400, "attach the audio to analyse")
-        wav = to_wav_bytes(*got)
-        if not mode:
-            x, sr = sf.read(io.BytesIO(wav), dtype="float64", always_2d=True)
-            x = x.mean(axis=1)
-            mode = "air" if air.looks_like_air(x if sr == air.SR else resample(x, sr, air.SR)) \
-                else "hidden"
-        plate = _plate(wav, mode)
+        plate = _plate(to_wav_bytes(*got))
     except ValueError as exc:
         raise HTTPException(400, str(exc))
-    return {**plate, "mode": mode}
+    return {**plate, "mode": "hidden"}
 
 
 @app.post("/api/channel")
@@ -217,12 +196,10 @@ async def api_channel(password: str = Form(...),
         except ValueError as exc:
             result = {"info": {"kind": "none", "quality": "none", "password_ok": False,
                                "reason": str(exc)}}
-        mode = result["info"].get("mode") or ("air" if sr == air.SR and air.looks_like_air(y)
-                                              else "hidden")
-        plate = _plate(wav, mode)
+        plate = _plate(wav)
         band_snr = None
         if options.get("noise") not in (None, ""):
-            band = air.band_hz() if mode == "air" else (config_for(sr).f_lo, config_for(sr).f_hi)
+            band = (config_for(sr).f_lo, config_for(sr).f_hi)
             band_snr = round(band_snr_db(x, sr, band, channel.noise_sigma(x, float(options["noise"]))), 1)
     except (ValueError, json.JSONDecodeError) as exc:
         raise HTTPException(400, str(exc))
@@ -254,25 +231,17 @@ async def api_sweep(password: str = Form(...), kind: str = Form("noise"),
         wav0 = to_wav_bytes(*got)
         x, sr = sf.read(io.BytesIO(wav0), dtype="float64", always_2d=True)
         x = x.mean(axis=1)
-        # learn the mode and preset once from the clean file, then decode each step directly
+        # learn the preset once from the clean file, then decode each step directly
         payload, meta0 = decode_any(wav0, password)
         if not meta0.get("password_ok"):
             raise ValueError("wrong password for this file")
-        mode = meta0.get("mode", "hidden")
-        band = air.band_hz() if mode == "air" else (config_for(sr).f_lo, config_for(sr).f_hi)
+        band = (config_for(sr).f_lo, config_for(sr).f_hi)
         steps = []
         for op, value, label in SWEEPS[kind]:
             y, _ = channel.apply(x, sr, {op: value})
-            if mode == "air":
-                try:
-                    payload, meta = decode_any(write_wav(y, sr), password)
-                except ValueError as exc:
-                    payload, meta = None, {"kind": "none", "quality": "none", "reason": str(exc),
-                                           "password_ok": False, "mode": "air"}
-            else:
-                payload, meta = decode(write_wav(y, sr), password,
-                                       cfg=config_for(sr, meta0.get("detail", "standard")))
-                meta["mode"] = "hidden"
+            payload, meta = decode(write_wav(y, sr), password,
+                                   cfg=config_for(sr, meta0.get("detail", "standard")))
+            meta["mode"] = "hidden"
             meta.pop("tones", None)
             step = {"label": label, **_result(payload, meta)}
             if op == "noise":
@@ -280,7 +249,7 @@ async def api_sweep(password: str = Form(...), kind: str = Form("noise"),
             steps.append(step)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
-    return {"kind": kind, "mode": mode, "steps": steps}
+    return {"kind": kind, "mode": "hidden", "steps": steps}
 
 
 @app.get("/api/filter")

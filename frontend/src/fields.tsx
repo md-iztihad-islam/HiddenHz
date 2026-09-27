@@ -91,8 +91,8 @@ export function Password({ value, onChange, min = 4 }: {
 
 /** Two to four options as a row of punched slots; the chosen one is punched through. */
 export function Slots<T extends string>({ label, value, onChange, options, tone }: {
-  label: string; value: T; onChange: (v: T) => void; tone?: "hidden" | "air";
-  options: { value: T; label: string; sub?: string; tone?: "hidden" | "air" }[];
+  label: string; value: T; onChange: (v: T) => void; tone?: "hidden";
+  options: { value: T; label: string; sub?: string; tone?: "hidden" }[];
 }) {
   const name = useId();
   return (
@@ -157,8 +157,8 @@ function clock(sec: number) {
 
 /**
  * Record from the microphone and hand back a File, drawing a live roll while it listens.
- * The browser's echo cancelling, noise suppression and gain riding are switched off: they
- * treat Air mode's steady tones as noise and carve them out.
+ * The browser's echo cancelling, noise suppression and gain riding are switched off, so the
+ * carrier is recorded as it sounds.
  */
 export function Recorder({ onRecorded, disabled, label, live = true, onLive }: {
   onRecorded: (f: File) => void; disabled?: boolean; label: string; live?: boolean;

@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
-import type { AirNotes, Mode, ToneMap } from "./api";
-import { bandMap } from "./colormap";
+import { useEffect, useRef, useState } from "react";
+import type { ToneMap } from "./api";
+import { EMBER } from "./colormap";
 
 const BG = 0xff0c0807;                 // #07080c as little-endian ABGR
 const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
@@ -29,7 +29,7 @@ type Plan = {
   dCol: Float32Array; dRow: Float32Array;
 };
 
-function plan(px: Uint8ClampedArray, tones: ToneMap, cols: number, rows: number, mode: Mode): Plan {
+function plan(px: Uint8ClampedArray, tones: ToneMap, cols: number, rows: number): Plan {
   const bytes = Uint8Array.from(atob(tones.rows), (ch) => ch.charCodeAt(0));
   const tone = new Uint16Array(bytes.buffer);
   let maxSlot = 0;
@@ -40,7 +40,7 @@ function plan(px: Uint8ClampedArray, tones: ToneMap, cols: number, rows: number,
     x0: new Float32Array(n), y0: new Float32Array(n), x1: new Float32Array(n),
     y1: new Float32Array(n), x2: new Float32Array(n), dCol: new Float32Array(n), dRow: new Float32Array(n),
   };
-  const m = bandMap(mode);
+  const m = EMBER;
   for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
     const k = r * cols + c, o = k * 4;
     const R = px[o], G = px[o + 1], B = px[o + 2];
@@ -90,9 +90,8 @@ const STEPS = {
  * rows -> columns -> loudness; "unscramble" plays it backwards. `loop` alternates forever
  * (the welcome page), running only while visible.
  */
-export function ScrambleStage({ picture, tones, cols, rows, mode = "hidden", direction, loop,
-  onDone, label }: {
-  picture: Blob | string; tones: ToneMap; cols: number; rows: number; mode?: Mode;
+export function ScrambleStage({ picture, tones, cols, rows, direction, loop, onDone, label }: {
+  picture: Blob | string; tones: ToneMap; cols: number; rows: number;
   direction: "scramble" | "unscramble"; loop?: boolean; onDone?: () => void; label: string;
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -111,7 +110,7 @@ export function ScrambleStage({ picture, tones, cols, rows, mode = "hidden", dir
     (async () => {
       const px = await pixelsOf(picture, cols, rows);
       if (!alive || !ref.current) return;
-      const p = plan(px, tones, cols, rows, mode);
+      const p = plan(px, tones, cols, rows);
       const c = ref.current;
       c.width = p.W; c.height = p.H;
       setSize([p.W, p.H]);
@@ -135,7 +134,7 @@ export function ScrambleStage({ picture, tones, cols, rows, mode = "hidden", dir
       raf = requestAnimationFrame(frame);
     })().catch(() => {});
     return () => { alive = false; cancelAnimationFrame(raf); io.disconnect(); };
-  }, [picture, tones, cols, rows, mode, direction, loop]);
+  }, [picture, tones, cols, rows, direction, loop]);
 
   const fig = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -151,83 +150,12 @@ export function ScrambleStage({ picture, tones, cols, rows, mode = "hidden", dir
     return () => cancelAnimationFrame(id);
   }, [loop]);
   return (
-    <figure ref={fig} className={`stage stage--${mode}`} aria-label={label}>
+    <figure ref={fig} className="stage" aria-label={label}>
       <canvas ref={ref} className="stage-canvas" style={{ aspectRatio: `${size[0]} / ${size[1]}` }} />
       <figcaption className="stage-steps" aria-live="polite">
         {STEPS[dir].map((s, k) => (
           <span key={s} className={k === step ? "is-on" : k < step ? "is-past" : ""}>{s}</span>
         ))}
-      </figcaption>
-    </figure>
-  );
-}
-
-/* ------------------------------------------------------------ Air mode: the real notes */
-
-/**
- * Air mode's actual tones as a piano roll: five lanes of eight notes, training first.
- * Notes draw in from the left, then light up in step with playback.
- */
-export function NotesStage({ notes, duration, audio }: {
-  notes: AirNotes; duration: number; audio?: RefObject<HTMLAudioElement | null>;
-}) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    const c = ref.current;
-    if (!c) return;
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const ctx = c.getContext("2d")!;
-    const TOP = 5600, dpr = Math.min(2, window.devicePixelRatio || 1);
-    const count = notes.symbols.length / notes.channels;
-    let raf = 0;
-    const t0 = performance.now();
-    const frame = (now: number) => {
-      const W = c.clientWidth, H = c.clientHeight;
-      if (c.width !== Math.round(W * dpr)) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.fillStyle = "#07080c"; ctx.fillRect(0, 0, W, H);
-      const X = (t: number) => (t / duration) * W, Y = (hz: number) => H - (hz / TOP) * H;
-      // lane guides
-      ctx.strokeStyle = "rgba(255,255,255,0.06)"; ctx.lineWidth = 1;
-      for (let ch = 0; ch < notes.channels; ch++) {
-        const lo = notes.hz[0][ch][0], hi = notes.hz[1][ch][notes.tones - 1];
-        ctx.strokeRect(0.5, Y(hi) - 3, W - 1, Y(lo) - Y(hi) + 6);
-      }
-      const reveal = reduce ? 1 : Math.min(1, (now - t0) / 1800);
-      const playT = audio?.current && !audio.current.paused ? audio.current.currentTime : -1;
-      // chirps
-      const lead = notes.t0 - 0.48;
-      ctx.strokeStyle = "rgba(127,176,255,0.85)"; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(X(lead), Y(700)); ctx.lineTo(X(lead + 0.4), Y(5200)); ctx.stroke();
-      const end = notes.t0 + count * notes.dt + 0.08;
-      if (reveal > 0.97) { ctx.beginPath(); ctx.moveTo(X(end), Y(5200)); ctx.lineTo(X(end + 0.4), Y(700)); ctx.stroke(); }
-      const w = Math.max(1.5, X(notes.dt) - 1), h = Math.max(2, (93.75 / TOP) * H * 0.7);
-      for (let k = 0; k < count * reveal; k++) {
-        const t = notes.t0 + k * notes.dt;
-        const live = playT >= t && playT < t + notes.dt;
-        const train = k < notes.train;
-        for (let ch = 0; ch < notes.channels; ch++) {
-          const hz = notes.hz[k % 2][ch][notes.symbols[k * notes.channels + ch]];
-          ctx.fillStyle = live ? "#eaf2ff" : train ? "rgba(120,170,255,0.55)" : "#2f63e0";
-          ctx.fillRect(X(t), Y(hz) - h / 2, w, h);
-        }
-      }
-      if (playT >= 0) {
-        ctx.fillStyle = "rgba(127,176,255,0.9)";
-        ctx.fillRect(X(playT) - 1, 0, 2, H);
-      }
-      raf = requestAnimationFrame(frame);
-    };
-    raf = requestAnimationFrame(frame);
-    return () => cancelAnimationFrame(raf);
-  }, [notes, duration, audio]);
-  return (
-    <figure className="stage stage--air stage--notes" aria-label="The notes Air mode plays">
-      <canvas ref={ref} className="notes-canvas" />
-      <figcaption className="stage-steps">
-        <span className="is-on">Start chirp</span><span className="is-on">Training</span>
-        <span className="is-on">{Math.round(notes.symbols.length / notes.channels) - notes.train} data notes × 5 lanes</span>
-        <span className="is-on">End chirp</span>
       </figcaption>
     </figure>
   );

@@ -67,7 +67,6 @@ const W = 150, H = 54;
 function Bands() {
   const x = (f: number) => (f / (SR / 2)) * W;
   return <>
-    <rect className="band band--air" x={x(750)} y="0" width={x(4830) - x(750)} height={H} />
     <rect className="band band--hidden" x={x(15000)} y="0" width={x(22000) - x(15000)} height={H} />
   </>;
 }

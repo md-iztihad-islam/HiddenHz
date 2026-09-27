@@ -2,10 +2,9 @@
 
 **Slides: 4 minutes. Demo: 3 minutes.**
 
-- Rayyan presents slides 1 to 6. Iztihad presents slides 7 to 12.
+- Rayyan presents slides 1 to 6. Iztihad presents slides 7 to 11.
 - In the demo, Rayyan works the laptop. Both of you talk; each step says who.
-- The times in brackets are where you should be. If you are more than 10 seconds behind,
-  drop the sentence marked *(skip if late)*.
+- The times in brackets are where you should be.
 - Say numbers like "zero point nine five" and "fifteen to twenty-two kilohertz".
 
 ---
@@ -117,18 +116,7 @@
 
 **Click.**
 
-### 9. Air mode (Iztihad, 2:52)
-
-*Point at the phone, the recording, the laptop, then the notes at the bottom.*
-
-> Hidden mode has one weakness: phones and messaging apps squash sound, and the high band
-> goes first. So we built Air mode. It sends the data as notes between one and five
-> kilohertz, with error correction. You can hear it, but it survives a phone speaker and a
-> recording.
-
-**Click.**
-
-### 10. The lab (Iztihad, 3:16)
+### 9. The lab (Iztihad, 2:52)
 
 *Point along the row of boxes, then along the five pictures.*
 
@@ -138,15 +126,15 @@
 
 **Click.**
 
-### 11. Size and limits (Iztihad, 3:36)
+### 10. Size and limits (Iztihad, 3:13)
 
 > A 150 by 150 picture needs about 13 seconds of audio, colour about 20. The limits: MP3
-> deletes our band, so Hidden mode needs WAV. *(skip if late: And anyone who looks at the
-> spectrogram can see something is there.)*
+> deletes our band, so the file has to stay WAV. And anyone who looks at the spectrogram can
+> see something is there, even if they can't read it.
 
 **Click.**
 
-### 12. Thank you (Iztihad, 3:54)
+### 11. Thank you (Iztihad, 3:31)
 
 > That's the idea. Now let's show you the app.
 
@@ -177,7 +165,7 @@
 > Let's make a new one.
 
 *Rayyan: under **Image**, choose `hi.jpg`. Under **Carrier sound**, choose `rain.wav`.
-Leave **Hidden**, **Standard** and **Colour** as they are. Type `rainyday` as the password.*
+Leave **Standard** and **Colour** as they are. Type `rainyday` as the password.*
 
 > We pick a picture, a rain sound, and a password.
 
@@ -220,25 +208,10 @@ Leave **Hidden**, **Standard** and **Colour** as they are. Type `rainyday` as th
 *Click **Noise sweep**. Wait for the six pictures.*
 
 > With a little noise, the picture survives. At 15 decibels it gets damaged. At 5 it's gone.
-> *(skip if late: Filters work the same way. A high-pass keeps the picture, a low-pass
-> removes it.)*
+> Filters work the same way. A high-pass keeps the picture, because it only removes the rain.
+> A low-pass removes the picture.
 
-### 2:35 Air mode (Rayyan talks and clicks)
-
-*Rayyan clicks **Encode**, then **Air**, then **Text**. Type: `Meet me at the library at 5.`
-Click **Hide it**.*
-
-> Last, Air mode. These blue notes are the real notes it plays. You can hear them.
-
-*Press play for 2 seconds.*
-
-> You could play this out loud, record it on another phone, and it would still work.
-
-*Click **Decode it**. The password is still `rainyday`. Click **Reveal**.*
-
-> And the message comes back.
-
-### 2:55 Close (Iztihad)
+### 2:45 Close (Iztihad)
 
 > That's HiddenHz. Thank you.
 

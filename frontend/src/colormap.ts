@@ -29,12 +29,6 @@ export const EMBER = lut([
   [0, 7, 8, 12], [0.3, 110, 18, 12], [0.6, 214, 58, 36], [0.85, 255, 150, 110], [1, 255, 240, 230],
 ]);
 
-/** The payload band in Air mode: deep blue to ice. */
-export const ICE = lut([
-  [0, 7, 8, 12], [0.3, 16, 30, 110], [0.6, 36, 80, 200], [0.85, 120, 170, 255], [1, 235, 245, 255],
-]);
-
-export const bandMap = (mode: "hidden" | "air") => (mode === "air" ? ICE : EMBER);
 
 export function loadGray(src: Blob | string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {

@@ -2,8 +2,6 @@ import { useEffect, useState } from "react";
 import type { Mode, SpectrogramInfo } from "./api";
 import { loadGray, loudness } from "./colormap";
 
-export const AIR_VIEW_HZ = 7000;   // Air mode lives under 5 kHz; show 0-7 kHz, not 0-24
-
 /** A spectrogram as the backend drew it: whole spectrum plus the payload band enlarged. */
 export type SpecSource = {
   info: SpectrogramInfo; png: Blob | string; bandPng: Blob | string | null; mode: Mode;
@@ -26,7 +24,7 @@ function crop(g: Grid, nyq: number, viewHz: number): Grid {
 
 export async function buildField(src: SpecSource): Promise<Field> {
   const nyq = src.info.sample_rate / 2;
-  const viewHz = src.mode === "air" ? Math.min(AIR_VIEW_HZ, nyq) : nyq;
+  const viewHz = nyq;
   const main = crop(loudness(await loadGray(src.png)), nyq, viewHz);
   const band = src.bandPng ? loudness(await loadGray(src.bandPng)) : null;
   const bandHz = (src.info.band_hz ?? [0, 0]) as [number, number];

@@ -1,30 +1,23 @@
 import { Component, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import {
   decode, encode, getConfig, spectrogram, type Config, type Decoded, type EncodeInfo,
-  type Kind, type Mark, type Mode, type Plate,
+  type Kind, type Mark, type Plate,
 } from "./api";
 import { Alert, DropWell, Glyph, Password, Recorder, Slots, Toggle, formatBytes } from "./fields";
 import { Lab, type Source } from "./lab";
-import { Dots, LiveRoll, Player, useObjectUrl } from "./media";
+import { Dots, Player, useObjectUrl } from "./media";
 import { LabelStrip, Result } from "./result";
 import { Scope } from "./scope";
-import { NotesStage, ScrambleStage } from "./stage";
+import { ScrambleStage } from "./stage";
 import { Welcome } from "./welcome";
 
 type Tab = "home" | "encode" | "decode" | "lab";
 type Made = { file: File; plate: Plate | null; password: string; info: EncodeInfo; picture: File | null };
 
 const MAX_TEXT = 1000;
-const AIR_OVERHEAD_S = 2.6;
-
-function estimate(cfg: Config | null, mode: Mode, kind: Kind, colour: boolean, text: string,
+function estimate(cfg: Config | null, kind: Kind, colour: boolean, text: string,
                   file: File | null, aspect: number | null, detail: "standard" | "detail"): number | null {
   if (!cfg) return null;
-  if (mode === "air") {
-    const bytes = kind === "image" ? cfg.air.image_bytes
-      : kind === "text" ? new TextEncoder().encode(text).length : file?.size ?? 0;
-    return bytes ? AIR_OVERHEAD_S + (bytes + 14) / cfg.air.bytes_per_second : null;
-  }
   const p = cfg[`48000/${kind === "image" ? detail : "standard"}`];
   if (kind === "image") {
     if (!aspect) return colour ? p.seconds_for_square_colour : p.seconds_for_square_gray;
@@ -38,13 +31,13 @@ function estimate(cfg: Config | null, mode: Mode, kind: Kind, colour: boolean, t
 
 /* ------------------------------------------------------------------ encode */
 
-function Preview({ kind, image, text, file, mode, busy }: {
-  kind: Kind; image: File | null; text: string; file: File | null; mode: Mode; busy: boolean;
+function Preview({ kind, image, text, file, busy }: {
+  kind: Kind; image: File | null; text: string; file: File | null; busy: boolean;
 }) {
   const url = useObjectUrl(kind === "image" ? image : null);
   const has = kind === "image" ? !!image : kind === "text" ? text.trim().length > 0 : !!file;
   return (
-    <div className={`preview preview--${mode}` + (busy ? " is-busy" : "") + (has ? " has-content" : "")}>
+    <div className={"preview" + (busy ? " is-busy" : "") + (has ? " has-content" : "")}>
       {!has && <div className="preview-empty"><Glyph name={kind === "text" ? "text" : kind === "file" ? "file" : "image"} />
         <span>{kind === "image" ? "Choose a picture" : kind === "text" ? "Type a message" : "Choose a small file"}</span></div>}
       {has && kind === "image" && url && <img src={url} alt="The picture to hide" />}
@@ -60,7 +53,6 @@ function Preview({ kind, image, text, file, mode, busy }: {
 function EncodePanel({ cfg, onMade, go }: {
   cfg: Config | null; onMade: (m: Made) => void; go: (t: Tab) => void;
 }) {
-  const [mode, setMode] = useState<Mode>("hidden");
   const [kind, setKind] = useState<Kind>("image");
   const [image, setImage] = useState<File | null>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -87,20 +79,20 @@ function EncodePanel({ cfg, onMade, go }: {
   // a new input starts over
   useEffect(() => { if (phase === "done") { setOut(null); setPhase("idle"); } },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mode, kind, image, file, text, carrier, colour, detail]);
+    [kind, image, file, text, carrier, colour, detail]);
 
   const payloadReady = kind === "image" ? !!image : kind === "file" ? !!file : text.trim().length > 0;
   const ready = payloadReady && password.length >= 4 && (phase === "idle" || phase === "done");
-  const secs = estimate(cfg, mode, kind, colour, text, file, mode === "hidden" ? aspect : null, detail);
+  const secs = estimate(cfg, kind, colour, text, file, aspect, detail);
 
   const run = async () => {
     setErr(""); setPhase("encoding"); setOut(null);
     try {
-      const r = await encode({ mode, kind, password, colour, detail, image, file, text, carrier });
+      const r = await encode({ kind, password, colour, detail, image, file, text, carrier });
       const made: Made = { file: r.wav, plate: null, password, info: r.info, picture: kind === "image" ? image : null };
       setOut(made);
       setPhase(r.info.tones && made.picture ? "animating" : "done");
-      spectrogram(r.wav, mode).then((p) => {
+      spectrogram(r.wav).then((p) => {
         const full = { ...made, plate: p };
         setOut(full); onMade(full);
       }).catch(() => onMade(made));
@@ -114,20 +106,16 @@ function EncodePanel({ cfg, onMade, go }: {
   const busy = phase === "encoding";
 
   return (
-    <div className={"bench bench--" + mode}>
+    <div className="bench">
       <section className="controls" aria-labelledby="enc-title">
         <h1 id="enc-title" className="face-title">Hide something</h1>
-        <Slots label="Mode" value={mode} onChange={setMode} options={[
-          { value: "hidden", label: "Hidden", sub: "inaudible", tone: "hidden" },
-          { value: "air", label: "Air", sub: "through phones", tone: "air" },
-        ]} />
         <Slots label="What" value={kind} onChange={setKind} options={[
           { value: "image", label: "Image" }, { value: "text", label: "Text" }, { value: "file", label: "File" },
         ]} />
         {kind === "image" && <DropWell label="Drop an image" kind="image" accept="image/*"
           file={image} onPick={setImage} hint="PNG, JPEG or BMP" />}
         {kind === "file" && <DropWell label="Drop a small file" kind="file" accept="*/*"
-          file={file} onPick={setFile} hint={mode === "air" ? "up to 3 KB" : "up to 70 KB"} />}
+          file={file} onPick={setFile} hint="up to 70 KB" />}
         {kind === "text" && (
           <label className="message-field">
             <span className="sr-only">Message</span>
@@ -136,14 +124,12 @@ function EncodePanel({ cfg, onMade, go }: {
             <span className="count">{text.length}/{MAX_TEXT}</span>
           </label>
         )}
-        {mode === "hidden" && (
-          <div className="carrier">
-            <DropWell label="Carrier sound (optional)" kind="audio" accept="audio/*" file={carrier}
-              onPick={setCarrier} hint="rain, music, a voice" />
-            <Recorder label="Record one" onRecorded={setCarrier} disabled={busy} />
-          </div>
-        )}
-        {mode === "hidden" && kind === "image" && (
+        <div className="carrier">
+          <DropWell label="Carrier sound (optional)" kind="audio" accept="audio/*" file={carrier}
+            onPick={setCarrier} hint="rain, music, a voice" />
+          <Recorder label="Record one" onRecorded={setCarrier} disabled={busy} />
+        </div>
+        {kind === "image" && (
           <Slots label="Detail" value={detail} onChange={setDetail} options={[
             { value: "standard", label: "Standard", sub: "150 rows · faster" },
             { value: "detail", label: "Detail", sub: "299 rows · 4× longer" },
@@ -162,34 +148,31 @@ function EncodePanel({ cfg, onMade, go }: {
       </section>
 
       <section className="display" aria-label="What happens">
-        {!out && <Preview kind={kind} image={image} text={text} file={file} mode={mode} busy={busy} />}
+        {!out && <Preview kind={kind} image={image} text={text} file={file} busy={busy} />}
 
         {showStage && (
           <ScrambleStage picture={out!.picture!} tones={out!.info.tones!} cols={out!.info.cols ?? 1}
             rows={out!.info.rows ?? 1} direction="scramble" label="The password scrambling your picture"
             onDone={() => setPhase("done")} />
         )}
-        {out?.info.notes && <NotesStage notes={out.info.notes} duration={out.info.duration_s} audio={audio} />}
 
         {out && phase === "done" && (
           <div className="result-block rise-in">
             <Scope source={out.plate} audio={audio} label="Your file, as a spectrum"
               payload={out.info.kind === "image" ? "Your image" : out.info.kind === "text" ? "Your message" : "Your file"}
               busy={out.plate ? null : "Measuring the spectrum…"} empty=""
-              formula={mode === "air"
-                ? <><i>x</i>[<i>n</i>] = Σ<sub><i>c</i></sub> cos(φ<sub><i>c</i></sub> + 2π<i>k</i><sub><i>c</i></sub><i>n</i>/<i>N</i>)</>
-                : <><i>x</i>[<i>n</i>] = Σ<sub><i>t</i></sub> <i>w</i>[<i>n</i> − <i>tH</i>] · IDFT{"{"}<i>A</i><sub><i>k</i>,<i>t</i></sub> e<sup><i>j</i>φ<sub><i>k</i>,<i>t</i></sub></sup>{"}"}</>} />
+              formula={<><i>x</i>[<i>n</i>] = Σ<sub><i>t</i></sub> <i>w</i>[<i>n</i> − <i>tH</i>] · IDFT{"{"}<i>A</i><sub><i>k</i>,<i>t</i></sub> e<sup><i>j</i>φ<sub><i>k</i>,<i>t</i></sub></sup>{"}"}</>} />
             <LabelStrip cells={[
-              ["Mode", out.info.mode === "air" ? "Air" : "Hidden"],
               ["Kind", out.info.kind[0].toUpperCase() + out.info.kind.slice(1)],
               ["Length", `${out.info.duration_s.toFixed(1)} s`],
               [out.info.kind === "image" && out.info.cols ? "Picture" : "Payload",
                out.info.kind === "image" && out.info.cols ? `${out.info.cols} × ${out.info.rows}`
                  : out.info.bytes ? formatBytes(out.info.bytes) : null],
+              ["Preset", out.info.kind === "image" ? (detail === "detail" ? "Detail" : "Standard") : null],
             ]} />
             {wavUrl && (
               <div className="deck">
-                <Player src={wavUrl} audio={audio} label={out.file.name} tone={mode} />
+                <Player src={wavUrl} audio={audio} label={out.file.name} />
                 <span className="deck-actions">
                   <a className="key" href={wavUrl} download={out.file.name}><Glyph name="down" />Download</a>
                   <button type="button" className="key" onClick={() => go("decode")}><Glyph name="key" />Decode it</button>
@@ -197,7 +180,6 @@ function EncodePanel({ cfg, onMade, go }: {
                 </span>
               </div>
             )}
-            {out.info.mode === "air" && <p className="tip">Play it out loud, record it on another device, then drop the recording on Decode.</p>}
           </div>
         )}
       </section>
@@ -213,7 +195,6 @@ function DecodePanel({ input, setInput }: { input: Source | null; setInput: (s: 
   const [measuring, setMeasuring] = useState(false);
   const [err, setErr] = useState("");
   const [out, setOut] = useState<Decoded | null>(null);
-  const [live, setLive] = useState<{ an: AnalyserNode; rate: number } | null>(null);
   const [mark, setMark] = useState<Mark | null>(null);
   const audio = useRef<HTMLAudioElement | null>(null);
   const url = useObjectUrl(input?.file ?? null);
@@ -240,17 +221,14 @@ function DecodePanel({ input, setInput }: { input: Source | null; setInput: (s: 
     catch (e) { if (id === req.current) setErr((e as Error).message); }
     if (id === req.current) setBusy(false);
   };
-  const onLive = useCallback((an: AnalyserNode | null, rate: number) => setLive(an ? { an, rate } : null), []);
 
   return (
-    <div className={"bench bench--" + (input?.plate?.mode ?? "hidden")}>
+    <div className="bench">
       <section className="controls" aria-labelledby="dec-title">
         <h1 id="dec-title" className="face-title">Reveal it</h1>
-        <DropWell label="Drop the audio" kind="audio" accept="audio/*,.ogg,.oga,.opus"
-          file={input?.file ?? null} hint="WAV, or a recording for Air"
+        <DropWell label="Drop the audio" kind="audio" accept="audio/*"
+          file={input?.file ?? null} hint="the WAV or FLAC you were sent"
           onPick={(f) => setInput(f ? { file: f, plate: null } : null)} />
-        <Recorder label="Listen with the mic" onLive={onLive}
-          onRecorded={(f) => setInput({ file: f, plate: null })} disabled={busy} />
         <Password value={password} onChange={setPassword} />
         <button type="button" className="punch-key" disabled={!input || !password || busy} aria-busy={busy} onClick={run}>
           {busy ? <Dots /> : <Glyph name="key" />}
@@ -260,16 +238,14 @@ function DecodePanel({ input, setInput }: { input: Source | null; setInput: (s: 
       </section>
 
       <section className="display" aria-label="What was received">
-        {live
-          ? <LiveRoll analyser={live.an} sampleRate={live.rate} />
-          : <Scope source={input?.plate ?? null} audio={audio} label="What arrived" mark={mark}
+        <Scope source={input?.plate ?? null} audio={audio} label="What arrived" mark={mark}
               payload={out?.info.kind === "image" ? "Your image" : out?.info.kind === "text" ? "Your message"
                 : out?.info.kind === "file" ? "Your file" : undefined}
               busy={measuring ? "Measuring the spectrum…" : null}
-              empty="Drop a file, or listen with the mic."
-              formula={<><i>X</i>[<i>k</i>, <i>t</i>] = Σ<sub><i>n</i></sub> <i>x</i>[<i>n</i> + <i>tH</i>] <i>w</i>[<i>n</i>] e<sup>−<i>j</i>2π<i>kn</i>/<i>N</i></sup></>} />}
-        {url && input && !live && <div className="deck"><Player src={url} audio={audio} label={input.file.name}
-          tone={input.plate?.mode ?? "hidden"} /><span className="deck-facts">{input.file.name}</span></div>}
+              empty="Drop the file you were sent."
+              formula={<><i>X</i>[<i>k</i>, <i>t</i>] = Σ<sub><i>n</i></sub> <i>x</i>[<i>n</i> + <i>tH</i>] <i>w</i>[<i>n</i>] e<sup>−<i>j</i>2π<i>kn</i>/<i>N</i></sup></>} />
+        {url && input && <div className="deck"><Player src={url} audio={audio} label={input.file.name} />
+          <span className="deck-facts">{input.file.name}</span></div>}
         <Result d={out} busy={busy} onMark={setMark} />
       </section>
     </div>

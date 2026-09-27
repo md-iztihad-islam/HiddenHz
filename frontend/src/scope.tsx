@@ -2,7 +2,7 @@ import {
   Suspense, lazy, useCallback, useEffect, useRef, useState, type PointerEvent, type ReactNode,
   type RefObject,
 } from "react";
-import { INFERNO, bandMap } from "./colormap";
+import { EMBER, INFERNO } from "./colormap";
 import { timeFraction, useField, type Field, type SpecSource } from "./field";
 // three.js is a large library: load it the first time a 3D view is shown
 const Terrain = lazy(() => import("./terrain"));
@@ -12,7 +12,7 @@ function paintMain(c: HTMLCanvasElement, f: Field) {
   c.width = w; c.height = h;
   const ctx = c.getContext("2d")!;
   const img = ctx.createImageData(w, h);
-  const bmap = bandMap(f.mode);
+  const bmap = EMBER;
   for (let y = 0; y < h; y++) {
     const hz = (1 - (y + 0.5) / h) * f.viewHz;
     const inBand = f.band && hz >= f.bandHz[0] && hz <= f.bandHz[1];
@@ -38,7 +38,7 @@ function paintBand(c: HTMLCanvasElement, f: Field) {
   c.width = w; c.height = h;
   const ctx = c.getContext("2d")!;
   const img = ctx.createImageData(w, h);
-  const m = bandMap(f.mode);
+  const m = EMBER;
   for (let i = 0; i < w * h; i++) {
     const k = Math.round(Math.min(1, Math.pow(v[i], 1.1)) * 255) * 3;
     img.data[i * 4] = m[k]; img.data[i * 4 + 1] = m[k + 1]; img.data[i * 4 + 2] = m[k + 2];
@@ -128,8 +128,7 @@ export function Scope({ source, audio, busy, empty, mark, label, formula, initia
       out.push({ at: 1 - (f - lo) / (hi - lo), label: kHz(f) });
     return out;
   };
-  const air = field?.mode === "air";
-  const mainTicks = field ? ticks(0, field.viewHz, air ? 1000 : 4000).filter((t) => t.at < 0.96 && t.at > 0.03) : [];
+  const mainTicks = field ? ticks(0, field.viewHz, 4000).filter((t) => t.at < 0.96 && t.at > 0.03) : [];
   const zoomTicks = field?.band ? ticks(field.bandHz[0], field.bandHz[1], 1000).filter((t) => t.at > 0.04 && t.at < 0.96) : [];
   const xTicks: Tick[] = [];
   if (info?.frames) {

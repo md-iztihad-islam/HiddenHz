@@ -55,7 +55,7 @@
   --math: "STIX Two Text", "Cambria Math", Cambria, serif;
   color-scheme: light;
 }
-.bench--air, .scope--air, .stage--air, .player--air, .way--air { --tone: var(--blue); --tone-soft: #e6ecfb; }
+.way--reveal { --tone: var(--go); --tone-soft: #e3f3ea; }
 
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; scrollbar-color: var(--line-2) transparent; scroll-behavior: smooth; }
@@ -227,7 +227,6 @@ main { flex: 1; }
 .slot:hover .slot-face { color: var(--ink); }
 .slot input:checked + .slot-face { background: var(--paper); color: var(--ink); box-shadow: 0 1px 2px rgba(15, 17, 21, 0.08), 0 4px 12px -4px rgba(15, 17, 21, 0.14); }
 .slot--hidden input:checked + .slot-face { background: var(--red); color: #fff; }
-.slot--air input:checked + .slot-face { background: var(--blue); color: #fff; }
 .slot input:focus-visible + .slot-face { outline: 2px solid var(--blue); outline-offset: 2px; }
 .slot:active .slot-face { transform: scale(0.97); }
 
@@ -309,7 +308,6 @@ main { flex: 1; }
 
 .stage { margin: 0; padding: 1rem; border-radius: 22px; background: var(--screen); display: grid; gap: 0.8rem; animation: rise 0.6s var(--ease) both; }
 .stage-canvas { width: 100%; max-height: 44vh; object-fit: contain; image-rendering: pixelated; border-radius: 10px; }
-.notes-canvas { width: 100%; height: clamp(200px, 30vh, 300px); display: block; border-radius: 10px; }
 .stage-steps { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .stage-steps span {
   padding: 0.3rem 0.75rem; border-radius: 99px; font-size: 0.82rem; font-weight: 650;
@@ -485,7 +483,6 @@ main { flex: 1; }
 .fx.is-on output { color: var(--ink); }
 .mini { width: 100%; height: 54px; display: block; overflow: visible; }
 .mini .band--hidden { fill: color-mix(in srgb, var(--red) 13%, transparent); }
-.mini .band--air { fill: color-mix(in srgb, var(--blue) 13%, transparent); }
 .mini path { fill: none; stroke: var(--line-2); stroke-width: 2; stroke-linejoin: round; transition: stroke 0.25s; }
 .fx.is-on .mini path { stroke: var(--ink); }
 .mini .ghost { stroke: var(--line); stroke-dasharray: 3 3; }

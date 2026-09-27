@@ -71,7 +71,7 @@ async function binary(b64: string | undefined, url: string | undefined, mime: st
 
 /* ------------------------------------------------------------ types */
 
-export type Mode = "hidden" | "air";
+export type Mode = "hidden";
 export type Kind = "image" | "text" | "file";
 export type Quality = "clean" | "damaged" | "none";
 
@@ -80,28 +80,20 @@ export type Config = {
     rows: number; band_hz: [number, number]; n_fft: number;
     seconds_for_square_gray: number; seconds_for_square_colour: number;
   };
-} & { air: { band_hz: [number, number]; bytes_per_second: number; max_bytes: number;
-             image_bytes: number } };
+};
 
 export type EncodeInfo = {
   mode: Mode; kind: Kind; duration_s: number; band_hz: [number, number];
   sample_rate: number; rows?: number; cols?: number; grid_cols?: number; colour?: boolean;
   bytes?: number; filename?: string; note?: string;
-  tones?: ToneMap; notes?: AirNotes;
-};
-
-/** The tones Air mode actually sent, training first. */
-export type AirNotes = {
-  t0: number; dt: number; train: number; channels: number; tones: number;
-  hz: number[][][]; symbols: number[];
+  tones?: ToneMap;
 };
 
 export type DecodeInfo = {
   mode?: Mode; kind: Kind | "none"; quality: Quality; password_ok: boolean;
   confidence?: number; rows?: number; cols?: number; colour?: boolean;
   filename?: string; bytes?: number; file_ok?: boolean; reason?: string;
-  channel_ber?: number; clock_ppm?: number;
-  tones?: ToneMap | null;
+  tones?: ToneMap | null; detail?: string;
 };
 
 /** Where each recovered pixel was sent (Hidden mode, right password only). */
@@ -175,25 +167,22 @@ const plateOf = (r: RawPlate, mode: Mode): Plate => ({
 });
 
 export async function encode(opts: {
-  mode: Mode; kind: Kind; password: string; colour: boolean; detail?: "standard" | "detail";
+  kind: Kind; password: string; colour: boolean; detail?: "standard" | "detail";
   image?: File | null; file?: File | null; text?: string; carrier?: File | null;
 }) {
   const f = new FormData();
-  f.append("mode", opts.mode);
   f.append("kind", opts.kind);
   f.append("password", opts.password);
   f.append("colour", String(opts.colour));
   f.append("max_cols", "400");
-  f.append("detail", opts.mode === "hidden" ? opts.detail ?? "standard" : "standard");
+  f.append("detail", opts.detail ?? "standard");
   if (opts.kind === "text") f.append("text", opts.text ?? "");
   if (opts.kind === "image" && opts.image) await attach(f, "image", opts.image, opts.image.name);
   if (opts.kind === "file" && opts.file) await attach(f, "file", opts.file, opts.file.name);
-  if (opts.mode === "hidden" && opts.carrier)
-    await attach(f, "carrier", opts.carrier, opts.carrier.name);
+  if (opts.carrier) await attach(f, "carrier", opts.carrier, opts.carrier.name);
   const r = await post<{ info: EncodeInfo; wav_base64?: string; wav_url?: string }>(
     "/api/encode", f);
-  const name = opts.mode === "air" ? "hiddenhz-air.wav" : "hiddenhz.wav";
-  return { info: r.info, wav: (await binary(r.wav_base64, r.wav_url, "audio/wav", name))! };
+  return { info: r.info, wav: (await binary(r.wav_base64, r.wav_url, "audio/wav", "hiddenhz.wav"))! };
 }
 
 export async function decode(audio: File, password: string) {
@@ -204,11 +193,10 @@ export async function decode(audio: File, password: string) {
 }
 
 /** Rendered by the backend with our own FFT, so the figure is the codec's transform. */
-export async function spectrogram(audio: File, mode?: Mode): Promise<Plate> {
+export async function spectrogram(audio: File): Promise<Plate> {
   const f = new FormData();
   await attach(f, "audio", audio, audio.name);
-  if (mode) f.append("mode", mode);
-  return plateOf(await post<RawPlate>("/api/spectrogram", f), mode ?? "hidden");
+  return plateOf(await post<RawPlate>("/api/spectrogram", f), "hidden");
 }
 
 export type SweepStep = { label: string; band_snr_db?: number; result: Decoded };
